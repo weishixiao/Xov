@@ -197,27 +197,27 @@ jobs:
       - name: Build LAME
         if: steps.deps.outputs.cache-hit != 'true'
         timeout-minutes: 15
-        run: ./deps/build_lame.sh
+        run: ./scripts/ci-run-logged.sh lame ./deps/build_lame.sh
 
       - name: Build FFmpeg
         if: steps.deps.outputs.cache-hit != 'true'
         timeout-minutes: 90
-        run: ./deps/build_ffmpeg.sh
+        run: ./scripts/ci-run-logged.sh ffmpeg ./deps/build_ffmpeg.sh
 
       - name: Build iSH
         if: steps.deps.outputs.cache-hit != 'true'
         timeout-minutes: 90
-        run: ./deps/build_ish.sh
+        run: ./scripts/ci-run-logged.sh ish ./deps/build_ish.sh
 
       - name: Prepare the Alpine rootfs
         if: steps.deps.outputs.cache-hit != 'true'
         timeout-minutes: 30
-        run: ./deps/prepare_alpine_rootfs.sh
+        run: ./scripts/ci-run-logged.sh rootfs ./deps/prepare_alpine_rootfs.sh
 
       - name: Build rclone
         if: steps.deps.outputs.cache-hit != 'true'
         timeout-minutes: 45
-        run: ./deps/build_rclone_ios.sh
+        run: ./scripts/ci-run-logged.sh rclone ./deps/build_rclone_ios.sh
 
       - name: Verify the native dependencies
         # A cache hit skips the scripts, so this is also the check that a
@@ -261,9 +261,9 @@ jobs:
         # "Strip Third-Party VAD Framework Symbols" phase skip its codesign,
         # which is what we want since it re-signs only after stripping.
         run: |
-          set -o pipefail
           mkdir -p "$RUNNER_TEMP/SourcePackages"
-          xcodebuild \
+          ./scripts/ci-run-logged.sh xcodebuild \
+            xcodebuild \
             -project src/ios/Minis.xcodeproj \
             -scheme Minis \
             -configuration Release \
@@ -275,7 +275,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
-            archive 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
+            archive
 
       - name: Package the .ipa
         id: ipa
@@ -351,7 +351,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: xcodebuild-log
-          path: ${{ runner.temp }}/xcodebuild.log
+          name: build-logs
+          path: ${{ runner.temp }}/*.log
           if-no-files-found: ignore
           retention-days: 7
