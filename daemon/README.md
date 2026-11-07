@@ -162,13 +162,21 @@ helper、`/usr/bin/xov-cli`、`/Library/LaunchDaemons/wiki.xov.xovd.plist`；
 
 - **已验（本机）**：`apelin_project_build` 出包、包内容、entitlements 读回、`icli svc paths`
   的路径改写预览（`ProgramArguments[0]` → `<jbroot>/usr/libexec/xovd`）。
-- **未验证**：安装、`icli svc bootstrap`、`xov-cli status`（期望 `status: OK` / `uid: 0`）、
-  `xov-build --exec /tmp 'id -u'` 得 `0` —— 这几步都要真装包并加载 root LaunchDaemon，
-  等用户授权后执行。
+- **已验（本机，2026-11-07 20:24）**：`apelin_package_install` 装上 `com.xov.daemon 0.1.0`
+  （installation `4f413aa3…`）→ `icli svc bootstrap` 返回 `loaded: true / running: true`、
+  pid 2432 → `xov-cli status` 输出 `status: OK` / `uid: 0` / `dash: ok` / `helper: ok`
+  → `xov-cli helper xov-build --exec /tmp 'id -u'` 经守护得 `uid=0`（同一 helper 直接以
+  mobile 跑是 `uid=501`）。日志里 `idle exit disabled (XOVD_IDLE_SECS=0)` 说明常驻形态生效。
 - **未验证**：helper 真正以 root 执行注入类工具的完整链路（需要设备上的一次真实注入）。
-- **推断**：roothide 下 launchd 通过路径改写找到 `<jbroot>/usr/libexec/xovd`；依据是
-  `icli svc paths` / `bootstrap` 的帮助文本（"On RootHide, a load rewrites these paths into the
-  jbroot first"），而非本机实测。
+- **已知缺口**：roothide 的 libxpc 里没有 `xpc_connection_has_bool_entitlement`，守护启动后
+  每次连接都记 `WARN xpc_connection_has_bool_entitlement unavailable` 并**放行**（见
+  `xovd.c` 的 `peer_allowed`）—— 也就是 `wiki.xov.client` 目前**没有真正被校验**，任何进程都能
+  驱动 root 守护跑白名单 helper。修法：用 `SecTaskCreateWithAuditToken` +
+  `SecTaskCopyValueForEntitlement` 兜底（需 `-framework Security`），并用一个不带 entitlement
+  的测试客户端验拒绝路径。
+- **已验**：roothide 下 launchd 通过路径改写找到 `<jbroot>/usr/libexec/xovd` ——
+  `icli svc paths` 预览出 `<jbroot>/usr/libexec/xovd`，`icli svc bootstrap` 后
+  `program` 正是该真实路径且 `running: true`。
 - **推断**：`/var/mobile`、`/var/log` 在两种 bootstrap 视图下都指向真根，所以守护与 postinst
   直接写这两个绝对路径。
 - `client/XovXPC.swift` 是照 `Sources/XosviMCP/XosviXPC.swift` 改名的移植，**没有**加进

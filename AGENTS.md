@@ -70,3 +70,12 @@
   `icli svc paths` 预览已验：`ProgramArguments[0]` → `<jbroot>/usr/libexec/xovd`、
   日志 → `<jbroot>/var/log/xovd.log`。
   仍**未**装包/加载（第 4 节硬约束；协作会话要求验收，需用户明确点头才做）。
+- 2026-11-07 20:24：用户同意后端到端验收通过。`apelin_package_install` 装 `com.xov.daemon 0.1.0`
+  （installation `4f413aa3-8c25-42b1-a640-143ff7307914`）→ `icli svc bootstrap <jbroot>/Library/LaunchDaemons/wiki.xov.xovd.plist`
+  返回 `loaded: true / running: true`（pid 2432）→ `<jbroot>/usr/bin/xov-cli status`：
+  `status: OK`、`uid: 0`、`dash: ok`、`helper: ok`；`xov-cli helper xov-build --exec /tmp 'id -u'`
+  经守护得 `uid=0`（直接以 mobile 跑同一条是 `uid=501`）。日志 `/var/log/xovd.log` 有
+  `idle exit disabled (XOVD_IDLE_SECS=0)`。
+  **发现的缺口**：roothide 的 libxpc 无 `xpc_connection_has_bool_entitlement`，守护每次连接都
+  记 WARN 并放行 —— `wiki.xov.client` 实际未被校验，任何进程都能驱动 root 守护跑白名单 helper。
+  待修（SecTask 兜底 + 不带 entitlement 的负向测试），未动代码。
