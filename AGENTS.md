@@ -52,6 +52,8 @@
 ## 5. 本轮进度（每轮追加，不删旧记录）
 
 - 2026-11-07：建 `AGENTS.md`；设 `upstream`（默认读）/`origin`（推送目标）远端。
+- 2026-11-07：`daemon/` 首批移植提交 `d27bd44`，已推到 `origin/main`
+  （`1a71df0 → d27bd44`，`git ls-remote` 核对远端一致）。
 - 2026-11-07：`daemon/` 落地（`xovd.c`、`xov-common.h`、四个 helper、`xov-cli`、三份 entitlements、
   launchd plist、`build.sh`、`README.md`、`APP-ENTITLEMENTS.md`、`client/XovXPC.swift`）。
   `daemon/build.sh` 本机真跑过：六个二进制 arm64+arm64e fat、ldid 签名可读回、
