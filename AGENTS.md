@@ -101,3 +101,15 @@
   `/var/mobile/xovinj/` 暂存目录仍在，未删（删包外文件需单独点头）。
   另：`jbctl trustcache add` 静默 rc=0，`trustcache info` 条目数未见增长（78 条），
   即 TweakInject 的加载并不依赖它 —— 该命令是否真的写入未查证。
+- 2026-11-07 23:05：新增 `.github/workflows/ios-app.yml`（iOS App → 未签名 .ipa）。
+  `macos-26` 上按 BUILDING.md 固定顺序跑五个 deps 脚本（原生产物走 `actions/cache` 精确 key，
+  hit 则整段跳过，并有一步 `Verify the native dependencies` 兜住残缺缓存），随后
+  `xcodebuild archive`（`CODE_SIGNING_ALLOWED=NO` / `CODE_SIGNING_REQUIRED=NO`，正好让
+  strip 阶段跳过 codesign），`ditto` + `zip -y` 打成 `Minis-<version>-<build>-unsigned.ipa`，
+  连同 `Minis-dSYMs.zip` 上传（30 天）。Xcode 钉 26.6 并带 SDK ≥26.2 的守卫；
+  Metal 工具链 `continue-on-error` 下载（缺了 FFmpeg 会静默丢 `yadif_videotoolbox`）。
+  同时把 `src/ios/Configs/ProviderCustomization.xcconfig` 加进 `.gitignore`（只跟踪 `.example`）。
+  **未验证**：本机无 Xcode/Go/macOS，工作流从未跑过；YAML 只做了缩进/制表符/行尾的结构检查
+  （设备上没有 actionlint/python/ruby/node）。单元测试不进工作流 —— `MinisTests` 要模拟器，
+  而 deps 只产出 device arm64 切片。artifact 里的 .ipa 仍需 `ldid -S` 按
+  `daemon/APP-ENTITLEMENTS.md` 签名才能装。

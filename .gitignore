@@ -116,6 +116,10 @@ __pycache__/
 # Build-time generated Swift (from ProviderCustomization.xcconfig); regenerated each build
 src/ios/Generated/
 
+# The machine-local copy of the template in Configs/ (BUILDING.md ▸ Build-time
+# customization). Only the .example is tracked; a build and CI both create it.
+src/ios/Configs/ProviderCustomization.xcconfig
+
 # Debug-only skill assets staged by scripts/gen_debug_skill_android.sh from
 # .claude/skills/debug-server/; regenerated on every debug build.
 src/android/app/src/debug/assets/debug-skill/

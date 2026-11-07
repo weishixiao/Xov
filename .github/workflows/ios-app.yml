@@ -1,0 +1,339 @@
+# Build the iOS app on a macOS runner and publish an unsigned .ipa + dSYMs.
+#
+# WHY THIS EXISTS
+# ---------------
+# Minis is not "open the project and press Run": the Linux sandbox is built
+# from source by deps/*.sh (LAME → FFmpeg → iSH → Alpine rootfs → rclone), and
+# that needs macOS with Xcode. Nothing on the device can produce the .ipa, so
+# the app is built here and the artifact is signed on the device.
+#
+# THE ARTIFACT IS UNSIGNED ON PURPOSE
+# -----------------------------------
+# Signing needs the device's own identity. Before installing, sign the .app
+# with the entitlements in daemon/APP-ENTITLEMENTS.md (`ldid -S<file>`);
+# TrollStore re-signs on install but keeps the entitlements already in the
+# binary, so `wiki.xov.client` must be in it before it is installed.
+#
+# WHAT IS CACHED, AND WHY IT MAY BE WORTH NOTHING
+# -----------------------------------------------
+# The native dependency build is 30–60 minutes on a cold cache, so its products
+# are cached and the deps/*.sh steps are skipped on a hit. The cache key is
+# exact (no restore-keys): a stale restore would leave every script thinking its
+# output is up to date and link wrong binaries.
+
+name: iOS app
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'src/android/**'
+      - 'daemon/**'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'src/android/**'
+      - 'daemon/**'
+  workflow_dispatch:
+
+# A new push to the same branch replaces the build it supersedes, except on
+# main, where every commit should still get an artifact.
+concurrency:
+  group: ios-app-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: '1'
+  HOMEBREW_NO_INSTALL_CLEANUP: '1'
+  HOMEBREW_NO_ANALYTICS: '1'
+
+jobs:
+  build:
+    name: Build Minis.ipa
+    # macOS 26 is arm64 and ships Xcode 26.6 (iOS 26.5 SDK), which is newer than
+    # the project's 26.2 deployment target. Intel runners are not used: the
+    # simulator slices the deps scripts build are arm64.
+    runs-on: macos-26
+    timeout-minutes: 240
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          # deps/ish and deps/proot are submodules; a clone without them fails
+          # at build_ish.sh.
+          submodules: recursive
+
+      - name: Read the submodule revisions
+        id: submodules
+        run: |
+          set -euo pipefail
+          for m in deps/ish deps/proot; do
+            printf '%s=%s\n' "$(basename "$m")" \
+              "$(git -C "$m" rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+          done
+          cat "$GITHUB_OUTPUT"
+
+      - name: Select Xcode
+        id: xcode
+        run: |
+          set -euo pipefail
+          # Pinned, because the image default drifts and a Swift 6 project is
+          # exactly the kind that breaks when it does. Fall back with a warning
+          # rather than failing the run when the image drops this version.
+          PINNED=/Applications/Xcode_26.6.app
+          if [ -d "$PINNED" ]; then
+            sudo xcode-select -s "$PINNED/Contents/Developer"
+            echo "using pinned $PINNED"
+          else
+            echo "::warning::$PINNED is gone; falling back to the image default"
+          fi
+          XCODE_VERSION="$(xcodebuild -version | head -1 | awk '{print $2}')"
+          SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "version=$XCODE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "ios-sdk=$SDK_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Xcode $XCODE_VERSION, iOS SDK $SDK_VERSION"
+          # IPHONEOS_DEPLOYMENT_TARGET is 26.2; an older SDK cannot build it.
+          NEWEST="$(printf '%s\n' 26.2 "$SDK_VERSION" | sort -V | tail -1)"
+          if [ "$NEWEST" != "$SDK_VERSION" ]; then
+            echo "::error::iOS SDK $SDK_VERSION is older than the 26.2 deployment target"
+            exit 1
+          fi
+
+      - name: Install the Metal toolchain
+        # FFmpeg's configure probes for the `metal` compiler and, when it is
+        # missing, SILENTLY drops the Metal-backed yadif_videotoolbox filter.
+        # The .ipa is valid either way, so a failed download must not fail the
+        # run — but it should be visible in the log.
+        continue-on-error: true
+        run: sudo xcodebuild -downloadComponent MetalToolchain
+
+      - name: Create the build-time customization file
+        # BUILDING.md: the repository ships only the .example; the values are
+        # machine-local and empty values compile fine.
+        run: |
+          set -euo pipefail
+          cfg=src/ios/Configs/ProviderCustomization.xcconfig
+          if [ ! -f "$cfg" ]; then
+            cp src/ios/Configs/ProviderCustomization.xcconfig.example "$cfg"
+          fi
+          echo "--- $cfg"
+          cat "$cfg"
+
+      - name: Install the macOS build tools
+        # ninja/meson: the iSH kernel and the fakefs converter.
+        # llvm: the guest VDSO. libarchive: unpacking the Alpine rootfs.
+        run: brew install ninja meson llvm libarchive pkg-config
+
+      - name: Set up Go
+        # rclone is linked as a static XCFramework; its version comes from the
+        # module's own go directive (1.25.5 today), not from a literal here.
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: deps/rclone-mobile/go.mod
+          cache-dependency-path: deps/rclone-mobile/go.sum
+
+      - name: Cache the Swift packages
+        # SwiftAnthropic, swift-cmark, SwiftMath and the RealTimeCutVAD
+        # binaryTarget together are a slow checkout; restore-keys are safe here
+        # because Xcode validates a resolved package graph itself.
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/SourcePackages
+          key: spm-${{ runner.arch }}-${{ hashFiles('src/ios/Minis.xcodeproj/project.pbxproj', 'src/ios/Minis.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-${{ runner.arch }}-
+
+      - name: Cache the native dependencies
+        id: deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps/lame-build
+            deps/frameworks
+            deps/libs
+            deps/include
+            deps/resources
+            deps/build
+            deps/.cache
+          # Exact key only: see the header. The FFmpeg source tree itself is
+          # not cached — on a hit build_ffmpeg.sh does not run at all.
+          key: deps-${{ runner.arch }}-xcode${{ steps.xcode.outputs.version }}-ish${{ steps.submodules.outputs.ish }}-proot${{ steps.submodules.outputs.proot }}-${{ hashFiles('deps/*.sh', 'deps/ffmpeg-patch/**', 'deps/rclone-mobile/**', 'deps/aot/**') }}
+
+      # ---------------------------------------------------------------------
+      # Native dependencies. BUILDING.md fixes this order: FFmpeg links LAME,
+      # and prepare_alpine_rootfs.sh reuses the fakefs converter build_ish.sh
+      # produces. Each step is separate so a failure names the script.
+      # ---------------------------------------------------------------------
+
+      - name: Build LAME
+        if: steps.deps.outputs.cache-hit != 'true'
+        timeout-minutes: 15
+        run: ./deps/build_lame.sh
+
+      - name: Build FFmpeg
+        if: steps.deps.outputs.cache-hit != 'true'
+        timeout-minutes: 90
+        run: ./deps/build_ffmpeg.sh
+
+      - name: Build iSH
+        if: steps.deps.outputs.cache-hit != 'true'
+        timeout-minutes: 90
+        run: ./deps/build_ish.sh
+
+      - name: Prepare the Alpine rootfs
+        if: steps.deps.outputs.cache-hit != 'true'
+        timeout-minutes: 30
+        run: ./deps/prepare_alpine_rootfs.sh
+
+      - name: Build rclone
+        if: steps.deps.outputs.cache-hit != 'true'
+        timeout-minutes: 45
+        run: ./deps/build_rclone_ios.sh
+
+      - name: Verify the native dependencies
+        # A cache hit skips the scripts, so this is also the check that a
+        # restored cache is complete. Link errors from a missing slice are
+        # opaque; a missing file here is not.
+        run: |
+          set -euo pipefail
+          fail=0
+          for p in \
+            deps/lame-build/lib/libmp3lame.a \
+            deps/frameworks/FFmpeg.xcframework \
+            deps/frameworks/Rclone.xcframework \
+            deps/include/ish \
+            deps/resources/alpine-rootfs.zip \
+            deps/resources/libvdso.so.elf
+          do
+            if [ ! -e "$p" ]; then
+              echo "::error::missing $p"
+              fail=1
+            else
+              printf '%-52s %s\n' "$p" "$(du -sh "$p" | cut -f1)"
+            fi
+          done
+          # libish, libish_emu, libfakefs, libish_aot (the last may be the
+          # empty stub when deps/aot has no images, which is normal here).
+          count="$(find deps/libs -maxdepth 1 -name '*.a' | wc -l | tr -d ' ')"
+          echo "deps/libs: $count static library/libraries"
+          if [ "$count" -lt 4 ]; then
+            echo "::error::deps/libs holds $count .a files, expected at least 4"
+            fail=1
+          fi
+          exit "$fail"
+
+      # ---------------------------------------------------------------------
+      # The app itself.
+      # ---------------------------------------------------------------------
+
+      - name: Build the app
+        # Unsigned: there is no signing identity on a runner, and none should
+        # be needed — the device signs. CODE_SIGNING_ALLOWED=NO also makes the
+        # "Strip Third-Party VAD Framework Symbols" phase skip its codesign,
+        # which is what we want since it re-signs only after stripping.
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/SourcePackages"
+          xcodebuild \
+            -project src/ios/Minis.xcodeproj \
+            -scheme Minis \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Minis.xcarchive" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            archive 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Package the .ipa
+        id: ipa
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/Minis.xcarchive/Products/Applications/Minis.app"
+          if [ ! -d "$APP" ]; then
+            echo "::error::the archive holds no Minis.app at $APP"
+            exit 1
+          fi
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
+          BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")"
+          NAME="Minis-${VERSION}-${BUILD}-unsigned"
+
+          STAGE="$RUNNER_TEMP/ipa"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE/Payload"
+          # ditto, not cp -R: it keeps the framework symlinks and resource
+          # forks intact, and zip -y stores the symlinks as symlinks.
+          ditto "$APP" "$STAGE/Payload/Minis.app"
+          ( cd "$STAGE" && zip -qry "$NAME.ipa" Payload )
+          rm -rf "$STAGE/Payload"
+
+          shasum -a 256 "$STAGE/$NAME.ipa" > "$STAGE/$NAME.ipa.sha256"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "path=$STAGE/$NAME.ipa" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Minis $VERSION ($BUILD), unsigned"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Xcode | ${{ steps.xcode.outputs.version }} |"
+            echo "| iOS SDK | ${{ steps.xcode.outputs.ios-sdk }} |"
+            echo "| native deps | ${{ steps.deps.outputs.cache-hit == 'true' && 'cache hit' || 'built from source' }} |"
+            echo "| .ipa | $(du -h "$STAGE/$NAME.ipa" | cut -f1) |"
+            echo "| sha256 | \`$(cut -d' ' -f1 "$STAGE/$NAME.ipa.sha256")\` |"
+            echo
+            echo "Sign before installing: \`ldid -S<entitlements>\` — see"
+            echo "\`daemon/APP-ENTITLEMENTS.md\` for the keys the app needs."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          du -sh "$STAGE/$NAME.ipa"
+
+      - name: Collect the dSYMs
+        # Kept for crash symbolication against exactly this build; the archive's
+        # dSYMs are gone when the runner is.
+        run: |
+          set -euo pipefail
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/Minis.xcarchive/dSYMs" "$RUNNER_TEMP/Minis-dSYMs.zip"
+          du -sh "$RUNNER_TEMP/Minis-dSYMs.zip"
+
+      - name: Upload the .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: Minis-ipa
+          path: ${{ steps.ipa.outputs.path }}
+          if-no-files-found: error
+          retention-days: 30
+          # Already compressed; zipping it again only costs time.
+          compression-level: 0
+
+      - name: Upload the dSYMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Minis-dSYMs
+          path: ${{ runner.temp }}/Minis-dSYMs.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload the build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: ignore
+          retention-days: 7
