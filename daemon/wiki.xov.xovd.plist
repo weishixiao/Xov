@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- xovd 的 launchd 描述。装到 <bootstrap>/Library/LaunchDaemons/wiki.xov.xovd.plist。
+
+     这里写的都是**逻辑路径**（/usr/libexec/xovd、/var/log/xovd.log）。roothide 上
+     `icli svc bootstrap` / `icli svc load` 会像 launchctl 那样，先把 launchd 要读的
+     路径就地改写成 jbroot 下的真实路径再加载；`icli svc paths` 只预览改写结果、不落盘。
+     所以 plist 里绝不写死 .jbroot-XXXX 前缀（重启后那个名字会变）。
+
+     刻意**不写 KeepAlive、不写 RunAtLoad**：xovd 是 MachService 按需拉起的守护，
+     连续 900s 没有请求就自己 exit(0)（见 xovd.c 的 kIdleSecs / XOVD_IDLE_SECS）。
+     配 KeepAlive=true 会和这个自退打架 —— launchd 会立刻把它重新拉起，形成
+     每 10s 一次的重启抖动（launchd 的节流间隔），日志里刷满 "xovd: idle 900s, exiting"。
+     正确形态就是「没有服务端进程 = 没有负担」，下一条客户端请求由 launchd 再拉起。 -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>wiki.xov.xovd</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/libexec/xovd</string>
+	</array>
+
+	<key>MachServices</key>
+	<dict>
+		<key>wiki.xov.service</key>
+		<true/>
+	</dict>
+
+	<key>RunAtLoad</key>
+	<false/>
+
+	<key>StandardOutPath</key>
+	<string>/var/log/xovd.log</string>
+	<key>StandardErrorPath</key>
+	<string>/var/log/xovd.log</string>
+
+	<key>ProcessType</key>
+	<string>Interactive</string>
+</dict>
+</plist>
