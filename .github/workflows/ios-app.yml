@@ -99,8 +99,26 @@ jobs:
           else
             echo "::warning::$PINNED is gone; falling back to the image default"
           fi
-          XCODE_VERSION="$(xcodebuild -version | head -1 | awk '{print $2}')"
-          SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+          # No pipelines into head/awk here. Runs 1 died right here with exit
+          # 134: `xcodebuild -version | head -1` lets head exit after one line,
+          # xcodebuild's second line then hits a closed pipe, Foundation
+          # aborts on EPIPE instead of dying of SIGPIPE, and pipefail (which
+          # GitHub adds to every bash step) turns that into a failed step.
+          # Capture the whole output first, then parse it in the shell.
+          if ! XCODE_OUT="$(xcodebuild -version 2>&1)"; then
+            echo "::error::xcodebuild -version failed:"
+            printf '%s\n' "$XCODE_OUT"
+            exit 1
+          fi
+          printf '%s\n' "$XCODE_OUT"
+          # A here-string, not a pipe: awk reads the captured text to the end,
+          # so nothing can be left writing into a closed descriptor.
+          XCODE_VERSION="$(awk 'NR==1{print $2}' <<< "$XCODE_OUT")"
+          if ! SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version 2>&1)"; then
+            echo "::error::xcrun --sdk iphoneos --show-sdk-version failed:"
+            printf '%s\n' "$SDK_VERSION"
+            exit 1
+          fi
           echo "version=$XCODE_VERSION" >> "$GITHUB_OUTPUT"
           echo "ios-sdk=$SDK_VERSION" >> "$GITHUB_OUTPUT"
           echo "Xcode $XCODE_VERSION, iOS SDK $SDK_VERSION"
