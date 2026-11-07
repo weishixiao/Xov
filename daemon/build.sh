@@ -1,17 +1,23 @@
 #!/bin/bash
 # daemon/build.sh —— 产出 com.xov.daemon 的 .deb（xovd + 四个 helper + xov-cli + launchd plist）。
 #
-# 由 Apelin 的外部构建（apelin_project_build）调用，也可以在本机终端手跑：
+# 由 Apelin 的外部构建（apelin_project_build）调用；也能在本机终端手跑：
 #
-#   APELIN_PROJECT_ROOT=... APELIN_PACKAGE_DIR=$(mktemp -d) \
-#   APELIN_ARCHITECTURE=iphoneos-arm64 daemon/build.sh
+#   APELIN_PROJECT_ROOT="$APELIN_PROJECT_ROOT" \
+#   APELIN_PACKAGE_DIR="$(mktemp -d -p "$TMPDIR")" \
+#   APELIN_ARCHITECTURE=iphoneos-arm64e APELIN_PREFIX= daemon/build.sh
 #
-# 三条硬规矩（都是 roothide 上实测踩出来的，改动时别退回去）：
-#   1) 环境变量只读：APELIN_PROJECT_ROOT / APELIN_PACKAGE_DIR / TMPDIR 缺一个就失败，
+# 四条硬规矩（都是 roothide 上实测踩出来的，改动时别退回去）：
+#   1) 环境变量只读：APELIN_PROJECT_ROOT / APELIN_PACKAGE_DIR / APELIN_ARCHITECTURE /
+#      APELIN_PREFIX / TMPDIR 缺一个就失败。APELIN_PREFIX 必须“有定义”，roothide 上是
+#      空串、rootless 上是 /var/jb —— 空串也要能通过，所以用 ${VAR?} 而不是 ${VAR:?}。
 #      不在脚本里自己猜路径。
 #   2) 所有编译都在 $(mktemp -d -p "$TMPDIR") 里用**相对路径**做。roothide 下给 clang
 #      绝对路径的 -o，产物常常静默不落地（进程按另一套视图解析那个绝对路径）。
-#   3) 不写死 .jbroot-XXXX：包内路径全是逻辑路径，前缀由安装器和 launchd 决定。
+#   3) 不写死 .jbroot-XXXX：包内路径 = $APELIN_PREFIX + 逻辑路径，prefix 由构建目标决定；
+#      设备上真正的前缀由安装器/launchd 在运行时决定。
+#   4) 包内不写 @PREFIX@ / @ROOTFS@ 之类占位符：launchd 不认识。rootless 的 /var/jb 前缀
+#      在打包这一步加到 ProgramArguments 上，仓库里的 plist 保持逻辑路径。
 #
 # 本脚本不安装、不加载、不 respring：只编译 + 打包，产物写进 APELIN_PACKAGE_DIR。
 
@@ -19,11 +25,19 @@ set -euo pipefail
 
 : "${APELIN_PROJECT_ROOT:?需要 APELIN_PROJECT_ROOT}"
 : "${APELIN_PACKAGE_DIR:?需要 APELIN_PACKAGE_DIR}"
+: "${APELIN_ARCHITECTURE:?需要 APELIN_ARCHITECTURE}"
+: "${APELIN_PREFIX?需要 APELIN_PREFIX（roothide 上允许为空串）}"
 : "${TMPDIR:?需要 TMPDIR}"
+
+case "$APELIN_PREFIX" in
+    "") ;;
+    /*) ;;
+    *)  echo "build.sh: APELIN_PREFIX 不是空串也不以 / 开头：'$APELIN_PREFIX'" >&2; exit 1 ;;
+esac
 
 PKGID="com.xov.daemon"
 VERSION="${XOV_VERSION:-0.1.0}"
-ARCH="${APELIN_ARCHITECTURE:-iphoneos-arm64}"
+ARCH="$APELIN_ARCHITECTURE"
 MAINTAINER="${XOV_MAINTAINER:-weishixiao <weishixiao@users.noreply.github.com>}"
 
 [ -d "$APELIN_PROJECT_ROOT/daemon" ] || {
@@ -33,14 +47,14 @@ MAINTAINER="${XOV_MAINTAINER:-weishixiao <weishixiao@users.noreply.github.com>}"
 mkdir -p "$APELIN_PACKAGE_DIR"
 
 WORK="$(mktemp -d -p "$TMPDIR" xov-build.XXXXXX)" || exit 1
-cleanup() { rm -rf "$WORK"; }
+cleanup() { [ -n "${WORK:?}" ] && rm -rf "$WORK"; }
 trap cleanup EXIT
 
 # 相对路径的锚点：在 WORK 里把项目根挂成 src，之后一切路径都是 src/daemon/xxx。
 cd "$WORK"
 ln -s "$APELIN_PROJECT_ROOT" src
 
-echo "build.sh: pkg=$PKGID version=$VERSION arch=$ARCH"
+echo "build.sh: pkg=$PKGID version=$VERSION arch=$ARCH prefix='${APELIN_PREFIX}' bootstrap='${APELIN_BOOTSTRAP:-?}'"
 echo "build.sh: project=$(cd src && pwd -P)"
 echo "build.sh: work=$WORK"
 
@@ -74,22 +88,35 @@ ldid -Ssrc/daemon/bin-entitlements.plist xov-bin
 ldid -Ssrc/daemon/xov-cli.entitlements xov-cli
 
 # ---- 打包树 ----
+# DEST = 包根 + $APELIN_PREFIX；roothide 上 prefix 为空，rootless 上是 /var/jb。
 ROOT="$WORK/root"
-mkdir -p "$ROOT/usr/libexec/xov" "$ROOT/usr/bin" \
-         "$ROOT/Library/LaunchDaemons" "$ROOT/DEBIAN"
+DEST="$ROOT$APELIN_PREFIX"
+[ -n "$DEST" ] || { echo "build.sh: 包根为空，拒绝继续" >&2; exit 1; }
+mkdir -p "$DEST/usr/libexec/xov" "$DEST/usr/bin" \
+         "$DEST/Library/LaunchDaemons" "$ROOT/DEBIAN"
 
-cp xovd            "$ROOT/usr/libexec/xovd"
-cp xov-build       "$ROOT/usr/libexec/xov/xov-build"
-cp xov-install     "$ROOT/usr/libexec/xov/xov-install"
-cp xov-symbolicate "$ROOT/usr/libexec/xov/xov-symbolicate"
-cp xov-bin         "$ROOT/usr/libexec/xov/xov-bin"
-cp xov-cli         "$ROOT/usr/bin/xov-cli"
-for f in "$ROOT/usr/libexec/xovd" "$ROOT"/usr/libexec/xov/* "$ROOT/usr/bin/xov-cli"; do
+cp xovd            "$DEST/usr/libexec/xovd"
+cp xov-build       "$DEST/usr/libexec/xov/xov-build"
+cp xov-install     "$DEST/usr/libexec/xov/xov-install"
+cp xov-symbolicate "$DEST/usr/libexec/xov/xov-symbolicate"
+cp xov-bin         "$DEST/usr/libexec/xov/xov-bin"
+cp xov-cli         "$DEST/usr/bin/xov-cli"
+for f in "$DEST/usr/libexec/xovd" "$DEST"/usr/libexec/xov/* "$DEST/usr/bin/xov-cli"; do
     chmod 0755 "$f"
 done
 
-cp src/daemon/wiki.xov.xovd.plist "$ROOT/Library/LaunchDaemons/wiki.xov.xovd.plist"
-chmod 0644 "$ROOT/Library/LaunchDaemons/wiki.xov.xovd.plist"
+# launchd plist：仓库里保持逻辑路径 /usr/libexec/xovd；rootless 打包时把 /var/jb 前缀
+# 补到 ProgramArguments 上（launchd 不认占位符）。只改这一行，别的字面量不动。
+PLIST="$DEST/Library/LaunchDaemons/wiki.xov.xovd.plist"
+if [ -n "$APELIN_PREFIX" ]; then
+    sed "s|<string>/usr/libexec/xovd</string>|<string>${APELIN_PREFIX}/usr/libexec/xovd</string>|" \
+        src/daemon/wiki.xov.xovd.plist > "$PLIST"
+    grep -q "<string>${APELIN_PREFIX}/usr/libexec/xovd</string>" "$PLIST" || {
+        echo "build.sh: plist 前缀改写失败" >&2; exit 1; }
+else
+    cp src/daemon/wiki.xov.xovd.plist "$PLIST"
+fi
+chmod 0644 "$PLIST"
 
 SIZE="$(du -sk "$ROOT" | awk '{print $1}')"
 
@@ -128,8 +155,8 @@ touch /var/log/xovd.log
 chmod 0644 /var/log/xovd.log
 
 echo "xovd 已安装。按顺序执行："
-echo "  1) icli svc paths <jbroot>/Library/LaunchDaemons/wiki.xov.xovd.plist    # 预览路径改写"
-echo "  2) icli svc bootstrap <jbroot>/Library/LaunchDaemons/wiki.xov.xovd.plist  # 加载（需 root）"
+echo "  1) icli svc paths <bootstrap>/Library/LaunchDaemons/wiki.xov.xovd.plist    # 预览路径改写"
+echo "  2) icli svc bootstrap <bootstrap>/Library/LaunchDaemons/wiki.xov.xovd.plist  # 加载（需 root）"
 echo "  3) xov-cli status    # 期望 status: OK / uid: 0"
 exit 0
 EOF

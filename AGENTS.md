@@ -59,3 +59,14 @@
   `daemon/build.sh` 本机真跑过：六个二进制 arm64+arm64e fat、ldid 签名可读回、
   `dpkg-deb` 产出 `com.xov.daemon_0.1.0_iphoneos-arm64.deb`（29 388 字节）。
   未装包、未加载、未 respring；`icli svc paths`/`bootstrap` 与 `xov-cli status` 的端到端未验证。
+- 2026-11-07：外部构建接通。`apelin-project.json` 补 `external.script=daemon/build.sh`
+  （interpreter bash）；`build.sh` 改为强制读 `APELIN_PROJECT_ROOT`/`APELIN_PACKAGE_DIR`/
+  `APELIN_ARCHITECTURE`/`APELIN_PREFIX`/`TMPDIR`，包内路径 = prefix + 逻辑路径，rootless 时
+  把 `/var/jb` 补到 plist 的 `ProgramArguments`；plist 改成常驻（`RunAtLoad`+`KeepAlive`+
+  `XOVD_IDLE_SECS=0`，`xovd` 认 0 = 关自退），仍有 `Library/LaunchDaemons/wiki.xov.xovd.plist`。
+  `apelin_project_build` 成功：build `1be7635f`，产物
+  `…/Apelin/Builds/<pid>/1be7635f…/package/com.xov.daemon_0.1.0_iphoneos-arm64e.deb`
+  （sha256 `0459feed8d8b8ee5ce6fef98301cda57feb5de63466b2c574da0fd0c07d51f92`，29 KB 量级）。
+  `icli svc paths` 预览已验：`ProgramArguments[0]` → `<jbroot>/usr/libexec/xovd`、
+  日志 → `<jbroot>/var/log/xovd.log`。
+  仍**未**装包/加载（第 4 节硬约束；协作会话要求验收，需用户明确点头才做）。

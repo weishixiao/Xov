@@ -40,25 +40,36 @@ Xov 的 root 能力入口：一个 launchd 按需拉起的 XPC 守护 `xovd`，�
 ```sh
 APELIN_PROJECT_ROOT="$(pwd)" \
 APELIN_PACKAGE_DIR="$(mktemp -d -p "$TMPDIR")" \
-APELIN_ARCHITECTURE=iphoneos-arm64 \
+APELIN_ARCHITECTURE=iphoneos-arm64e \
+APELIN_PREFIX= \
 bash daemon/build.sh
 ```
 
-`build.sh` 只读环境变量：`APELIN_PROJECT_ROOT`、`APELIN_PACKAGE_DIR`、`TMPDIR` 缺一个就退出；
-可选 `XOV_VERSION`（默认 `0.1.0`）、`XOV_MAINTAINER`。
+`build.sh` 只读环境变量：`APELIN_PROJECT_ROOT`、`APELIN_PACKAGE_DIR`、`APELIN_ARCHITECTURE`、
+`APELIN_PREFIX`（**必须定义**，roothide 上是空串、rootless 上是 `/var/jb`）、`TMPDIR`，
+缺一个就退出；可选 `APELIN_BOOTSTRAP`（只记进日志）、`XOV_VERSION`（默认 `0.1.0`）、
+`XOV_MAINTAINER`。`apelin-project.json` 的 `external.script` 指向本脚本，
+`apelin_project_build` 就是这么调它的（那时 `APELIN_ARCHITECTURE` 是 `iphoneos-arm64e`）。
 
-三条硬规矩写在脚本头里：编译全部在 `$(mktemp -d -p "$TMPDIR")` 里用相对路径做（roothide 下
-绝对路径的 `-o` 会静默不落地）、包内只有逻辑路径、不安装不加载不 respring。
+包内路径 = `$APELIN_PREFIX` + 逻辑路径；rootless 打包时脚本把 `/var/jb` 前缀补到 plist 的
+`ProgramArguments` 上，仓库里的 plist 永远只有逻辑路径。
 
-**本机实测（已验）**：产出
-`.../var/tmp/xov-pkg.ShVWoY/com.xov.daemon_0.1.0_iphoneos-arm64.deb`（29 388 字节），
-六个二进制都是 `arm64 + arm64e` fat，`ldid -e` 能读回各自的 entitlements，
-`xovd --help`、`xov-cli`、`xov-build`、`xov-bin` 均能启动并打印用法。
+四条硬规矩写在脚本头里：编译全部在 `$(mktemp -d -p "$TMPDIR")` 里用相对路径做（roothide 下
+绝对路径的 `-o` 会静默不落地）、不写死 `.jbroot-XXXX`、包内不用 launchd 不认的占位符、
+不安装不加载不 respring。
+
+**本机实测（已验）**：`apelin_project_build` 跑通（build `1be7635f`，约 12s），产出
+`…/Builds/…/package/com.xov.daemon_0.1.0_iphoneos-arm64e.deb`
+（sha256 `0459feed8d8b…`，29 KB 量级）；包内含 `/usr/libexec/xovd`、`/usr/libexec/xov/` 四个
+helper、`/usr/bin/xov-cli`、`/Library/LaunchDaemons/wiki.xov.xovd.plist`；
+六个二进制都是 `arm64 + arm64e` fat，`ldid -e` 能读回各自的 entitlements；
+`icli svc paths` 对该 plist 的预览把 `ProgramArguments[0]` 改写成
+`<jbroot>/usr/libexec/xovd`、两个日志路径改写成 `<jbroot>/var/log/xovd.log`。
 
 ## 安装与验证
 
-> 本会话**没有**装包、没有加载、没有 respring（硬约束）。下面是给设备上执行的流程，
-> 依据是 icli 的帮助文本与守护日志设计；端到端结果未验证。
+> 本会话**没有**装包、没有加载、没有 respring（项目硬约束，装包/加载需要用户明确点头）。
+> 下面是给设备上执行的流程；`icli svc paths` 的预览结果已实测，其余端到端结果未验证。
 
 1. 装包：把 `com.xov.daemon_*_iphoneos-arm64.deb` 交给设备上的包管理器（Sileo / irisin）。
    `postinst` 会建 `/var/mobile/Documents/wiki.xov/work`、建 `/var/log/xovd.log`，不改系统设置。
@@ -129,12 +140,13 @@ bash daemon/build.sh
 
 ## 运行期行为
 
-- launchd 按需拉起（plist 里刻意没有 `KeepAlive`、没有 `RunAtLoad`）：没有请求就没有进程。
-- 连续 900s 无请求自退；有 helper 在跑时不退（续一个周期再查）。排障时用
-  `XOVD_IDLE_SECS=5 launchctl` 或 plist 的 `EnvironmentVariables` 把周期调小。
+- 常驻形态：plist 写了 `RunAtLoad=true` + `KeepAlive=true`，开机即起、退出立刻补。
+- 因为常驻，plist 用 `EnvironmentVariables.XOVD_IDLE_SECS=0` 显式关掉空闲自退
+  （`xovd` 里 0 = 常驻；不设或设正数仍是默认 900s）。否则守护每 900s 退一次、launchd
+  马上再拉起，日志里刷重启记录。要回到「按需拉起」：删掉 `RunAtLoad`/`KeepAlive`/
+  `EnvironmentVariables` 三块，守护恢复 900s 自退，没有请求就没有进程。
+- 有 helper 在跑时即使开了自退也不退（续一个周期再查）。排障时把 `XOVD_IDLE_SECS` 调成几秒。
 - 每个连接一条请求：客户端回完即 `cancel`，守护侧不 retain 也不 cancel 连接。
-- 空闲自退与 `KeepAlive=true` 互斥：配了 KeepAlive，launchd 会立刻重新拉起，形成 10s 一次
-  的重启抖动，日志里刷满 `xovd: idle 900s, exiting`。
 
 ## 排错
 
@@ -148,7 +160,11 @@ bash daemon/build.sh
 
 ## 尚未验证 / 属推断
 
-- **未验证**：安装、`icli svc paths` / `bootstrap`、`xov-cli status` 的端到端结果（本会话禁止装包）。
+- **已验（本机）**：`apelin_project_build` 出包、包内容、entitlements 读回、`icli svc paths`
+  的路径改写预览（`ProgramArguments[0]` → `<jbroot>/usr/libexec/xovd`）。
+- **未验证**：安装、`icli svc bootstrap`、`xov-cli status`（期望 `status: OK` / `uid: 0`）、
+  `xov-build --exec /tmp 'id -u'` 得 `0` —— 这几步都要真装包并加载 root LaunchDaemon，
+  等用户授权后执行。
 - **未验证**：helper 真正以 root 执行注入类工具的完整链路（需要设备上的一次真实注入）。
 - **推断**：roothide 下 launchd 通过路径改写找到 `<jbroot>/usr/libexec/xovd`；依据是
   `icli svc paths` / `bootstrap` 的帮助文本（"On RootHide, a load rewrites these paths into the

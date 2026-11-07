@@ -669,7 +669,9 @@ static void remove_pidfile(void) {
 
 /* 连续 kIdleSecs 没有请求就退出（launchd 下次连接会重新拉起）。
  * 必须重置，否则「键盘没电了但守护一直挂着」会占着 root 进程不放。
- * XOVD_IDLE_SECS 可覆盖（排障时缩小到几秒即可验证「有 helper 时不退出」）。 */
+ * XOVD_IDLE_SECS 可覆盖（排障时缩小到几秒即可验证「有 helper 时不退出」）。
+ * 显式设成 0 = 常驻、不自退：plist 写了 KeepAlive=true 时用它，免得守护每 900s
+ * 退一次又被 launchd 拉起，日志里刷重启记录。 */
 static int kIdleSecs = 900;
 
 static void arm_idle_timer(dispatch_source_t t) {
@@ -694,6 +696,7 @@ int main(int argc, char **argv) {
     if (idle_env && idle_env[0]) {
         int v = atoi(idle_env);
         if (v >= 1) kIdleSecs = v;
+        else if (v == 0) kIdleSecs = 0;   /* 常驻模式（KeepAlive 用） */
     }
 
     g_create_mach = (create_mach_fn)dlsym(RTLD_DEFAULT, "xpc_connection_create_mach_service");
@@ -738,22 +741,27 @@ int main(int argc, char **argv) {
     dispatch_queue_t q = dispatch_queue_create("wiki.xov.xovd", DISPATCH_QUEUE_SERIAL);
     g_helper_queue = dispatch_queue_create("wiki.xov.xovd.helpers",
                                            DISPATCH_QUEUE_CONCURRENT);
-    dispatch_source_t idle = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, q);
-    dispatch_source_set_event_handler(idle, ^{
-        /* 还有 helper 在跑就绝不自退 —— exit(0) 会把正在执行的命令连同客户端
-         * 连接一起砍掉，App 侧只看到「连接中断」而不知道原因。续一个周期再检查。 */
-        int running = (int)__atomic_load_n(&g_running_helpers, __ATOMIC_RELAXED);
-        if (running > 0) {
-            logmsg("xovd: idle %ds but %d helper(s) still running; stay alive", kIdleSecs, running);
-            arm_idle_timer(idle);
-            return;
-        }
-        logmsg("xovd: idle %ds, exiting", kIdleSecs);
-        remove_pidfile();   /* dispatch_main 不走 atexit，这里手动清 */
-        exit(0);
-    });
-    arm_idle_timer(idle);
-    dispatch_resume(idle);
+    __block dispatch_source_t idle = NULL;
+    if (kIdleSecs > 0) {
+        idle = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, q);
+        dispatch_source_set_event_handler(idle, ^{
+            /* 还有 helper 在跑就绝不自退 —— exit(0) 会把正在执行的命令连同客户端
+             * 连接一起砍掉，App 侧只看到「连接中断」而不知道原因。续一个周期再检查。 */
+            int running = (int)__atomic_load_n(&g_running_helpers, __ATOMIC_RELAXED);
+            if (running > 0) {
+                logmsg("xovd: idle %ds but %d helper(s) still running; stay alive", kIdleSecs, running);
+                arm_idle_timer(idle);
+                return;
+            }
+            logmsg("xovd: idle %ds, exiting", kIdleSecs);
+            remove_pidfile();   /* dispatch_main 不走 atexit，这里手动清 */
+            exit(0);
+        });
+        arm_idle_timer(idle);
+        dispatch_resume(idle);
+    } else {
+        logmsg("xovd: idle exit disabled (XOVD_IDLE_SECS=0); daemon stays resident");
+    }
 
     xpc_connection_t listener = g_create_mach(SVC_NAME, q, XPC_CONNECTION_MACH_SERVICE_LISTENER);
     if (!listener) {
@@ -763,7 +771,7 @@ int main(int argc, char **argv) {
     xpc_connection_set_event_handler(listener, ^(xpc_object_t event) {
         if (xpc_get_type(event) != XPC_TYPE_CONNECTION) return;
         xpc_connection_t peer = (xpc_connection_t)event;
-        arm_idle_timer(idle);
+        if (idle) arm_idle_timer(idle);
         if (!peer_allowed(peer)) {
             char d[128];
             peer_desc(peer, d, sizeof d);
