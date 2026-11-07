@@ -134,3 +134,15 @@
   结论（推断）：整模块照搬 = 把 xosvi 的引擎一起搬进来，与「保留 Minis agent 引擎/provider 抽象」
   冲突；待用户确认走「传输层照搬」还是「连引擎一起换」。
   **未查证**：哪几个具体 API 行为是用户真正要的（多 provider 网关？自建中转？）。
+- 2026-11-07 23:55：用户拍板「API 模块只移植 UI，不整体移植」——即模型/服务商这几页换成 xosvi 的样子，
+  数据仍走 Minis 的 `ProviderConfigStore`/`ModelEntry`，不搬 xosvi 的 `ModelStore`/引擎。
+  本轮改的三处（全部只动视觉，选择/搜索/折叠/拖拽/滑动删除/配额徽章逻辑一行未改）：
+  - `Views/Providers/UnifiedModelPicker.swift`：List 加 `.listStyle(.plain)` +
+    `.scrollContentBackground(.hidden)` + `XTheme.bg`；服务商分区标题去全大写、12pt 半粗次级灰；
+    条目行标题 `XTheme.rowTitleSize` medium、选中/激活的勾选色由 `Color.accentColor` 换成 `XTheme.accent`、
+    选中行加 `XTheme.rowSelected` 底（`listRowBackground`），行高 +2pt。
+  - `Views/Providers/ProviderInstancesView.swift`：同款底色；服务商行标题 15 medium、
+    凭据摘要 12、模型数 12 三级灰；语音服务行同款。
+  - `Views/Providers/ModelGroupsView.swift`：同款底色；分组行标题 15 medium。
+  **未验证**：本机无 Swift 编译器，只做了括号/圆括号平衡检查（三个文件均 0/0），
+  编译与真机观感要等 CI 出包。

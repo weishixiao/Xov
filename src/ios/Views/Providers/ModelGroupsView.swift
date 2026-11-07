@@ -135,6 +135,10 @@ struct ModelGroupsView: View {
             AgentLoopModelsSection(showAddModels: $showAddAgentModels,
                                    showAddGroups: $showAddAgentGroups)
         }
+        // [Xov] 视觉：中性底 + 平铺列表。
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(XTheme.bg)
         .navigationTitle("Model Groups")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showAddAgentModels) {
@@ -361,7 +365,7 @@ private struct GroupRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(group.name)
-                    .font(.body.weight(.medium))
+                    .font(.system(size: XTheme.rowTitleSize, weight: .medium))
                 // [T-ios-modelgroup-modality-icons] Mark the group's top-2 most
                 // distinctive modalities (inputs + outputs) right after the title,
                 // in priority order, for at-a-glance "what is this group for".

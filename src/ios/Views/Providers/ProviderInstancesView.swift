@@ -115,6 +115,10 @@ struct ProviderInstancesView: View {
                 }
             }
         }
+        // [Xov] 视觉：中性底 + 平铺列表，行样式走 XTheme。
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(XTheme.bg)
         .navigationTitle("Providers")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -435,22 +439,22 @@ private struct InstanceRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(instance.label)
-                    .font(.body.weight(.medium))
+                    .font(.system(size: XTheme.rowTitleSize, weight: .medium))
                 HStack(spacing: 6) {
                     Text(instance.credentialType == .apiKey ? "API Key" : "OAuth")
-                        .font(.caption)
+                        .font(.system(size: XTheme.rowSubtitleSize - 1))
                         .foregroundStyle(.secondary)
                     Text("·")
-                        .font(.caption)
+                        .font(.system(size: XTheme.rowSubtitleSize - 1))
                         .foregroundStyle(.quaternary)
                     Text(credentialSummary)
-                        .font(.caption)
+                        .font(.system(size: XTheme.rowSubtitleSize - 1))
                         .foregroundStyle(credentialDisplay.needsReauth ? AnyShapeStyle(Color.red) : AnyShapeStyle(.secondary))
                         .lineLimit(1)
                 }
                 if modelCount > 0 {
                     Text(AppLocalized("\(modelCount) models"))
-                        .font(.caption2)
+                        .font(.system(size: XTheme.rowTimeSize))
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -491,11 +495,11 @@ private struct ShadowVoiceRow: View {
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(shadow.displayName)
-                    .font(.body)
+                    .font(.system(size: XTheme.rowTitleSize, weight: .medium))
                 let asr = shadow.inputModels.count
                 let tts = shadow.outputModels.count
                 Text(voiceSummary(asr: asr, tts: tts))
-                    .font(.caption2)
+                    .font(.system(size: XTheme.rowTimeSize))
                     .foregroundStyle(.tertiary)
             }
             Spacer()

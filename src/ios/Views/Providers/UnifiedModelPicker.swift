@@ -679,6 +679,11 @@ struct UnifiedModelPicker: View {
                 }
             }
         }
+        // [Xov] 视觉：xosvi 的白/近黑中性底 + 无卡片间隙的平铺列表。
+        // 只换底色与行样式，搜索、折叠、选择逻辑都在下面原样保留。
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(XTheme.bg)
         .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search models")
         // [T-picker-search-debounce] Drive the debounced query (GH#271).
         //
@@ -903,7 +908,7 @@ struct UnifiedModelPicker: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(group.name)
-                        .font(.subheadline.weight(.medium))
+                        .font(.system(size: XTheme.rowTitleSize, weight: .medium))
                         .foregroundStyle(Color(UIColor.label))
                     strategyBadge(group.strategy)
                 }
@@ -949,6 +954,7 @@ struct UnifiedModelPicker: View {
             .buttonStyle(.plain)
         }
         .contentShape(Rectangle())
+        .listRowBackground(isSelected ? XTheme.rowSelected : Color.clear)
         .onTapGesture {
             config.onSelectGroup?(group)
             dismissIfNeeded()
@@ -1142,7 +1148,7 @@ struct UnifiedModelPicker: View {
         HStack(spacing: 10) {
             Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 17))
-                .foregroundStyle(isActive ? Color.accentColor : Color(UIColor.quaternaryLabel))
+                .foregroundStyle(isActive ? XTheme.accent : Color(UIColor.quaternaryLabel))
 
             providerDot(entry.model.provider)
                 .opacity(disabled ? 0.4 : 1)
@@ -1190,6 +1196,7 @@ struct UnifiedModelPicker: View {
             quickTestButton(entry)
         }
         .contentShape(Rectangle())
+        .listRowBackground(isActive ? XTheme.rowSelected : Color.clear)
         .onTapGesture {
             guard !disabled else { return }
             if let inGroup = config.onSelectInGroup {
@@ -1212,7 +1219,7 @@ struct UnifiedModelPicker: View {
     /// Model name on a group member row.
     private func memberRowName(_ entry: ModelEntry, disabled: Bool) -> some View {
         Text(entry.model.displayName)
-            .font(.subheadline)
+            .font(.system(size: XTheme.rowTitleSize, weight: .medium))
             .foregroundStyle(disabled ? Color(UIColor.tertiaryLabel) : Color(UIColor.label))
             .alignmentGuide(.quotaCapCenter) { $0.quotaCapCenter }
     }
@@ -1433,6 +1440,10 @@ struct UnifiedModelPicker: View {
                     .textCase(nil)
                 }
             }
+            // [Xov] 分区标题：去系统全大写，压到 12pt 次级灰。
+            .textCase(nil)
+            .font(.system(size: XTheme.rowSubtitleSize - 1, weight: .semibold))
+            .foregroundStyle(XTheme.subText)
         }
     }
 
@@ -1460,7 +1471,7 @@ struct UnifiedModelPicker: View {
         return HStack(spacing: 10) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 20))
-                    .foregroundStyle(isSelected ? Color.accentColor : Color(UIColor.tertiaryLabel))
+                    .foregroundStyle(isSelected ? XTheme.accent : Color(UIColor.tertiaryLabel))
 
                 Image(systemName: traits.iconSymbol)
                     .font(.system(size: 11))
@@ -1470,7 +1481,7 @@ struct UnifiedModelPicker: View {
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 4) {
                         Text(entry.model.displayName)
-                            .font(.subheadline)
+                            .font(.system(size: XTheme.rowTitleSize, weight: .medium))
                             .foregroundStyle(disabled ? Color(UIColor.tertiaryLabel) : Color(UIColor.label))
                         if !isMulti, config.currentGroupId?() != nil,
                            config.currentEntryId?() == entry.id {
@@ -1512,6 +1523,8 @@ struct UnifiedModelPicker: View {
                 quickTestButton(entry)
         }
         .opacity(disabled ? 0.6 : 1)
+        .padding(.vertical, 2)
+        .listRowBackground(isSelected ? XTheme.rowSelected : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture {
             guard !disabled else { return }
