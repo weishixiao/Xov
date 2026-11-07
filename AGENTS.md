@@ -10,7 +10,9 @@
 
 1. 底座保留 Minis（工程骨架、agent 引擎、provider 抽象、iSH 沙盒、技能与记忆）不动。
 2. 搬 xosvi 的能力（约 50 个原生工具：App 管理、注入、抓包、SQLite 取证、包解剖、内存、设备、文件）。
-3. **UI 先不做**（`src/ios/Views` 一行不改，xosvi 的 `ChatView`/`XTheme`/`ConversationListView` 推迟，非取消）。
+3. **UI 逐页改造**（2026-11-07 用户改口，取代原「UI 先不做」）：抽屉的会话列表**保留 Minis 的行为**
+   （数据源、排序分组、文件夹、拖拽、右键菜单、搜索高亮、Face ID 锁定、运行/暂停标记），**只换视觉**；
+   其余页面逐个按 xosvi 的 DeepSeek 白/近黑中性底改造，公共 token 落 `src/ios/Views/ContentView/XTheme.swift`。
 4. 工具协议全部重写成 Minis 自己的协议，不保留 MCP JSON-RPC 层。
 5. 分发继续 TrollStore，保留特权 entitlements 与 root XPC 守护。
 
@@ -44,7 +46,7 @@
 ## 4. 硬约束
 
 - 不装包、不 respring、不动系统；xosvi 项目只读，不改它的文件与 git 历史。
-- `src/ios/Views` 一行不改。
+- `src/ios/Views` 只改视觉、不动行为：抽屉会话列表的数据流、手势、菜单、锁定、搜索逻辑一律保留。
 - 不构建 iOS App（本机没有 Xcode/Go/macOS），不要声明构建成功。
 - 结论区分「已查证 / 推断」；给真实路径，不要占位符。
 - 同一命令同类错误失败 2 次就停并报告。
@@ -113,3 +115,22 @@
   （设备上没有 actionlint/python/ruby/node）。单元测试不进工作流 —— `MinisTests` 要模拟器，
   而 deps 只产出 device arm64 切片。artifact 里的 .ipa 仍需 `ldid -S` 按
   `daemon/APP-ENTITLEMENTS.md` 签名才能装。
+- 2026-11-07 23:40：UI 开工（用户改口，见第 1 节第 3 条）。
+  新增 `src/ios/Views/ContentView/XTheme.swift`（照搬 xosvi 的 DeepSeek token：白/近黑底、
+  `rowSelected`、`hairline`、DeepSeek 蓝、行字号 15/13/12、34pt 头像、圆角 10）。
+  `Views/ContentView/Sidebar/SessionRow.swift` 换成 xosvi 的细描边环形头像 + 15 medium 标题 +
+  13 摘要 + 12 时间，间距 8→12；`RemoteSessionRow` 同步。行为层未动（Equatable、徽章、
+  锁定模糊、搜索高亮、`scaledApp` 动态字号、按压样式全部保留）。
+  **未验证**：本机无 Swift 编译器/Xcode，只做了括号平衡与制表符检查；要等 CI 出包才算编译通过。
+- 2026-11-07 23:40：模型 API 模块的依赖测绘（照搬可行性）。xosvi 侧只有
+  `Sources/XosviMCP` 一个扁平目录（185 个 Swift 文件）；`OpenAIClient`(1909) + `Models`(2899) +
+  `ProviderDirectory`(966) + `GatewayClient`(204) 共 5 978 行，不是独立模块：它们引用另外 37 个
+  外部类型（`StreamingProjection`/`ProjectedBlock`/`ToolRegistry`/`Workspace`/`ReasoningWriter`/
+  `MCPCore` 里的 `ToolDefinition`/`KeychainStore`/`AuditLog`/`ChatView`…），即 xosvi 自己的
+  agent 引擎、工具层、流式投影与 MCP 核心。与 Minis 冲突的类型只有 `ChatMessage` 一个。
+  Minis 侧已有 `src/ios/Providers/`：`LLMProvider`/`LLMProviderFactory`/`LLMError`、
+  OpenAI/Anthropic/Gemini/Kimi/xAI/OpenRouter/Copilot/Antigravity 八家、`ModelEntry`、
+  `ModelsDevAPI`（模型目录）、`ModelGroupRouter`、`OAuthRefreshCoordinator`。
+  结论（推断）：整模块照搬 = 把 xosvi 的引擎一起搬进来，与「保留 Minis agent 引擎/provider 抽象」
+  冲突；待用户确认走「传输层照搬」还是「连引擎一起换」。
+  **未查证**：哪几个具体 API 行为是用户真正要的（多 provider 网关？自建中转？）。

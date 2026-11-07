@@ -220,61 +220,69 @@ struct SessionRow: View, Equatable {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
-            // Provider icon with optional spinning/suspended ring
-            providerIcon
-                .frame(width: 44, height: 44)
-                .background(iconBackgroundColor.opacity(isHighlighted ? 0.35 : 0.18))
-                .clipShape(Circle())
-                .overlay {
-                    if isSuspended {
-                        SuspendedRing(color: .yellow)
-                            .frame(width: 42, height: 42)
-                    } else if isActive {
-                        SpinningRing(color: iconBackgroundColor)
-                            .frame(width: 42, height: 42)
-                    }
+        HStack(spacing: 12) {
+            // Ring avatar (xosvi/DeepSeek 风)：细描边外圈 + 极淡填充，图标仍是
+            // 会话类别语义色。原来 44pt 实心淡色圆盘在新规范里显得过重。
+            ZStack {
+                Circle()
+                    .fill(iconBackgroundColor.opacity(isHighlighted ? 0.16 : 0.08))
+                Circle()
+                    .strokeBorder(
+                        iconBackgroundColor.opacity(isHighlighted ? 1.0 : 0.65),
+                        lineWidth: 1.5
+                    )
+                providerIcon
+            }
+            .frame(width: XTheme.avatarDiameter, height: XTheme.avatarDiameter)
+            .overlay {
+                if isSuspended {
+                    SuspendedRing(color: .yellow)
+                        .frame(width: XTheme.avatarDiameter - 2, height: XTheme.avatarDiameter - 2)
+                } else if isActive {
+                    SpinningRing(color: iconBackgroundColor)
+                        .frame(width: XTheme.avatarDiameter - 2, height: XTheme.avatarDiameter - 2)
                 }
-                .overlay(alignment: .bottomTrailing) {
-                    // Lock badge takes precedence over source / remote
-                    // badges: the locked state is the most important
-                    // affordance for the user when scanning the list.
-                    if isVisuallyLocked {
-                        badgeCircle(icon: "lock.fill", color: .gray)
-                            .offset(x: 2, y: 2)
-                    } else if let badge = visibleBadge {
-                        // [T-ios-session-paused-badge] Transient queue states win
-                        // over the source / iCloud badges. Head-of-queue is shown.
-                        badgeCircle(for: badge)
-                            .offset(x: 2, y: 2)
-                    } else if session.source == "shortcut" {
-                        badgeCircle(icon: "bolt.fill", color: .orange)
-                            .offset(x: 2, y: 2)
-                    } else if session.isRemote {
-                        badgeCircle(icon: "icloud.fill", color: .blue, iconSize: 7)
-                            .offset(x: 2, y: 2)
-                    }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                // Lock badge takes precedence over source / remote
+                // badges: the locked state is the most important
+                // affordance for the user when scanning the list.
+                if isVisuallyLocked {
+                    badgeCircle(icon: "lock.fill", color: .gray)
+                        .offset(x: 2, y: 2)
+                } else if let badge = visibleBadge {
+                    // [T-ios-session-paused-badge] Transient queue states win
+                    // over the source / iCloud badges. Head-of-queue is shown.
+                    badgeCircle(for: badge)
+                        .offset(x: 2, y: 2)
+                } else if session.source == "shortcut" {
+                    badgeCircle(icon: "bolt.fill", color: .orange)
+                        .offset(x: 2, y: 2)
+                } else if session.isRemote {
+                    badgeCircle(icon: "icloud.fill", color: .blue, iconSize: 7)
+                        .offset(x: 2, y: 2)
                 }
-                // [T-ios-session-unread-badge] Top-trailing red unread dot,
-                // independent of the bottom-trailing corner badge above so an
-                // unread session can also show ⏸ / iCloud without conflict.
-                .overlay(alignment: .topTrailing) {
-                    if showsUnreadDot {
-                        Circle()
-                            .fill(Color.red)
-                            .frame(width: 8, height: 8)
-                            .offset(x: -1, y: 1)
-                    }
+            }
+            // [T-ios-session-unread-badge] Top-trailing red unread dot,
+            // independent of the bottom-trailing corner badge above so an
+            // unread session can also show ⏸ / iCloud without conflict.
+            .overlay(alignment: .topTrailing) {
+                if showsUnreadDot {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 8, height: 8)
+                        .offset(x: -1, y: 1)
                 }
+            }
 
             // Title + subtitle. For locked sessions both lines are blurred
             // so neither the conversation topic nor the last message reads
             // as plain text in the list. The avatar and trailing lock-icon
             // overlay sit outside this VStack so they stay crisp.
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 highlightedText(
                     session.title ?? "New Chat",
-                    font: .system(size: fontSettings.scaledApp(16), weight: .semibold),
+                    font: .system(size: fontSettings.scaledApp(XTheme.rowTitleSize), weight: .medium),
                     color: Color(UIColor.label)
                 )
                 .lineLimit(1)
@@ -287,14 +295,14 @@ struct SessionRow: View, Equatable {
                     // keyword stands out inside the ~100-char window.
                     highlightedText(
                         snippet,
-                        font: .system(size: fontSettings.scaledApp(14)),
+                        font: .system(size: fontSettings.scaledApp(XTheme.rowSubtitleSize)),
                         color: Color(UIColor.secondaryLabel)
                     )
                     .lineLimit(2)
                 } else {
                     highlightedText(
                         session.lastMessage ?? "No messages yet",
-                        font: .system(size: fontSettings.scaledApp(14)),
+                        font: .system(size: fontSettings.scaledApp(XTheme.rowSubtitleSize)),
                         color: Color(UIColor.secondaryLabel)
                     )
                     .lineLimit(1)
@@ -320,7 +328,7 @@ struct SessionRow: View, Equatable {
             VStack(alignment: .trailing, spacing: 4) {
                 // Date
                 Text(relativeDate(session.updatedAt))
-                    .font(.system(size: fontSettings.scaledApp(13)))
+                    .font(.system(size: fontSettings.scaledApp(XTheme.rowTimeSize)))
                     .foregroundStyle(Color(UIColor.tertiaryLabel))
                 if isVisuallyLocked {
                     Image(systemName: "lock.fill")
@@ -333,8 +341,8 @@ struct SessionRow: View, Equatable {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, XTheme.rowHPadding)
+        .padding(.vertical, XTheme.rowVPadding)
         .contentShape(Rectangle())
         #if DEBUG
         // TEMPORARY height probe — confirms List self-sizing jitter source.
@@ -435,7 +443,9 @@ struct SessionRow: View, Equatable {
     @ViewBuilder
     private var providerIcon: some View {
         let icon = categoryIcon
-        let size: CGFloat = (icon.systemName == "bubble.left.fill" || icon.systemName == "terminal.fill") ? 18 : 20
+        let size: CGFloat = (icon.systemName == "bubble.left.fill" || icon.systemName == "terminal.fill")
+            ? XTheme.avatarGlyphSize - 1
+            : XTheme.avatarGlyphSize
         Image(systemName: icon.systemName)
             .font(.system(size: size))
             .foregroundStyle(icon.color)
@@ -552,37 +562,41 @@ struct RemoteSessionRow: View {
     let session: ChatSession
 
     var body: some View {
-        HStack(spacing: 8) {
-            // Category icon with iCloud badge
-            providerIcon
-                .frame(width: 44, height: 44)
-                .background(iconColor.opacity(0.18))
-                .clipShape(Circle())
-                .overlay(alignment: .bottomTrailing) {
-                    Image(systemName: "icloud.fill")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 16, height: 16)
-                        .background(Color.blue)
-                        .clipShape(Circle())
-                        .offset(x: 2, y: 2)
-                }
+        HStack(spacing: 12) {
+            // Ring avatar, same species as SessionRow's
+            ZStack {
+                Circle()
+                    .fill(iconColor.opacity(0.08))
+                Circle()
+                    .strokeBorder(iconColor.opacity(0.65), lineWidth: 1.5)
+                providerIcon
+            }
+            .frame(width: XTheme.avatarDiameter, height: XTheme.avatarDiameter)
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: "icloud.fill")
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 16, height: 16)
+                    .background(Color.blue)
+                    .clipShape(Circle())
+                    .offset(x: 2, y: 2)
+            }
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(session.title ?? "Untitled")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: XTheme.rowTitleSize, weight: .medium))
                     .foregroundStyle(Color(UIColor.label))
                     .lineLimit(1)
                 Text(session.updatedAt, style: .relative)
-                    .font(.system(size: 14))
+                    .font(.system(size: XTheme.rowSubtitleSize))
                     .foregroundStyle(Color(UIColor.secondaryLabel))
                     .lineLimit(1)
             }
 
             Spacer(minLength: 1)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, XTheme.rowHPadding)
+        .padding(.vertical, XTheme.rowVPadding)
         .contentShape(Rectangle())
     }
 
@@ -595,7 +609,9 @@ struct RemoteSessionRow: View {
     @ViewBuilder
     private var providerIcon: some View {
         let icon = categoryIcon
-        let size: CGFloat = (icon.systemName == "bubble.left.fill" || icon.systemName == "terminal.fill") ? 18 : 20
+        let size: CGFloat = (icon.systemName == "bubble.left.fill" || icon.systemName == "terminal.fill")
+            ? XTheme.avatarGlyphSize - 1
+            : XTheme.avatarGlyphSize
         Image(systemName: icon.systemName)
             .font(.system(size: size))
             .foregroundStyle(icon.color)
