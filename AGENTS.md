@@ -146,3 +146,21 @@
   - `Views/Providers/ModelGroupsView.swift`：同款底色；分组行标题 15 medium。
   **未验证**：本机无 Swift 编译器，只做了括号/圆括号平衡检查（三个文件均 0/0），
   编译与真机观感要等 CI 出包。
+- 2026-11-07 23:50：CI 首轮失败原因已查清（run #3 的 annotation）：
+  `deps/build_ish.sh` 里 meson 生成 arm64 VDSO 时用
+  `clang -target aarch64-linux-gnu -fuse-ld=lld`，Homebrew 的 lld 是 keg-only，
+  `/opt/homebrew/bin` 下没有 `ld.lld`，clang 报
+  `invalid linker name in argument '-fuse-ld=lld'` → ninja 停在第 1/93 个目标。
+  修法：`brew install` 加 `lld`，把 `/opt/homebrew/opt/llvm/bin` 与
+  `/opt/homebrew/opt/lld/bin` 写进 `$GITHUB_PATH`；另加 `Verify the guest linker`
+  步骤（两秒验证 clang 能链 aarch64 目标），坏工具链早失败。
+  提交 `63bbcce` 已推 `origin/main`。
+- 2026-11-08 00:20：**run #4（`42387918307`，`63bbcce`）成功**，总时长 31m47s，
+  单个 job「Build Minis.ipa」31m44s。产物两个（run 页 Artifacts 表，未登录可见名称与摘要）：
+  `Minis-ipa` 69.8 MB sha256 `7ca7aafbc8a7b866bcdd172d8451015af88dc817072a85063c6f9a581dddbd30`、
+  `Minis-dSYMs` 33.4 MB sha256 `3cd5f7161628d8a249ed22b469d6936e7d1a59eb29f1e6439764d305f6a20371`。
+  即 Minis 全量依赖链（lame/ffmpeg/iSH/alpine rootfs/rclone）与 `xcodebuild archive` 在 CI 上真跑通，
+  此前三处 Swift 改动（`XTheme`/`SessionRow`/`Providers` 三页）**编译通过**；真机观感仍属未验证。
+  下载限制（已查证）：GitHub Actions artifact 一律要求登录，匿名取不到直链，需在 Safari 登录后从
+  run 页 Artifacts 下载；本会话 `apelin_web_fetch` 的匿名 API 仍被限流（403），拿不到 artifact id。
+  唯一告警：`actions/*@v4` 等被强制跑在 Node 24（Node 20 弃用），不影响构建。
