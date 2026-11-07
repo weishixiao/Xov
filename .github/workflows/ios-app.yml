@@ -151,8 +151,32 @@ jobs:
 
       - name: Install the macOS build tools
         # ninja/meson: the iSH kernel and the fakefs converter.
-        # llvm: the guest VDSO. libarchive: unpacking the Alpine rootfs.
-        run: brew install ninja meson llvm libarchive pkg-config
+        # llvm: the guest VDSO.
+        # lld: the VDSO is linked with `-fuse-ld=lld`, which clang resolves as a
+        # bare `ld.lld` on PATH. Homebrew keeps the lld formula keg-only, so
+        # installing it alone leaves clang answering
+        # "invalid linker name in argument '-fuse-ld=lld'" — the run #3 failure.
+        # libarchive: unpacking the Alpine rootfs.
+        run: |
+          set -euo pipefail
+          brew install ninja meson llvm lld libarchive pkg-config
+          # Both directories, for the rest of the job: llvm's clang is what
+          # iSH builds with, lld's bin dir is where that clang looks for ld.lld.
+          echo "/opt/homebrew/opt/llvm/bin" >> "$GITHUB_PATH"
+          echo "/opt/homebrew/opt/lld/bin" >> "$GITHUB_PATH"
+          ls -l /opt/homebrew/opt/lld/bin/ld.lld
+
+      - name: Verify the guest linker
+        # A fast, self-contained proof that clang can link an aarch64 Linux
+        # object with lld, so a broken toolchain fails here in two seconds
+        # instead of six minutes into deps/build_ish.sh.
+        run: |
+          set -euo pipefail
+          command -v clang; command -v ld.lld
+          ld.lld --version
+          printf 'void _start(void){}\n' > "$RUNNER_TEMP/lldprobe.c"
+          clang --target=aarch64-linux-gnu -fuse-ld=lld -nostdlib -o "$RUNNER_TEMP/lldprobe" "$RUNNER_TEMP/lldprobe.c"
+          file "$RUNNER_TEMP/lldprobe"
 
       - name: Set up Go
         # rclone is linked as a static XCFramework; its version comes from the
