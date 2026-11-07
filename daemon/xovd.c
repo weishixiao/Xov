@@ -400,16 +400,56 @@ static void run_helper(char *const argv[], int argc_unused, int timeout, result_
  * 不做这道校验的话，任何 App 都能借 root 守护跑 helper。 */
 #define CLIENT_ENT "wiki.xov.client"
 
+/* --------- peer 身份校验 ---------
+ *
+ * 目标：只有带 CLIENT_ENT（wiki.xov.client）的客户端能驱动 root 守护。
+ * roothide 的 libxpc **没有** xpc_connection_has_bool_entitlement（本机实测 dlsym 为
+ * NULL），所以按优先级做三级降级，并且**默认拒绝**（fail-closed）：
+ *
+ *   1) xpc_connection_has_bool_entitlement —— 公共/私有 API 齐全时最省事；
+ *   2) xpc_connection_copy_entitlement_value —— libxpc 里实际存在（本机 tbd 已确认），
+ *      返回 peer 的 entitlement 值（bool false / error / NULL 都算没有）；
+ *   3) 都没有：拒绝连接，除非显式设了 XOVD_ALLOW_ANY_PEER=1（排障用，会写日志）。
+ *
+ * 早期版本在拿不到 API 时 return 1（放行），等于 root 守护对任何 App 开放，已改掉。 */
+typedef int (*has_bool_ent_fn)(xpc_connection_t, const char *);
+typedef xpc_object_t (*copy_ent_fn)(xpc_connection_t, const char *);
+
+static has_bool_ent_fn g_has_bool_ent;
+static copy_ent_fn g_copy_ent;
+
+/* 返回 1=带该 entitlement，0=没带，-1=无法校验 */
+static int peer_entitlement_state(xpc_connection_t peer, const char *key) {
+    if (g_has_bool_ent) return g_has_bool_ent(peer, key) ? 1 : 0;
+    if (g_copy_ent) {
+        xpc_object_t v = g_copy_ent(peer, key);
+        if (!v) return 0;
+        xpc_type_t t = xpc_get_type(v);
+        int ok = 0;
+        if (t == XPC_TYPE_BOOL) {
+            ok = xpc_bool_get_value(v) ? 1 : 0;
+        } else if (t != XPC_TYPE_ERROR && t != XPC_TYPE_NULL) {
+            /* 字符串 / 整数 / 数组：有这个 key 就算带 */
+            ok = 1;
+        }
+        xpc_release(v);
+        return ok;
+    }
+    return -1;
+}
+
 static int peer_allowed(xpc_connection_t peer) {
-    static int (*has_ent)(xpc_connection_t, const char *);
-    if (!has_ent) has_ent = (int (*)(xpc_connection_t, const char *))
-        dlsym(RTLD_DEFAULT, "xpc_connection_has_bool_entitlement");
-    if (!has_ent) {
-        /* 取不到校验函数时按「有」处理：这里只为挡普通 App，不承担鉴权。 */
-        logmsg("xovd: WARN xpc_connection_has_bool_entitlement unavailable");
+    int st = peer_entitlement_state(peer, CLIENT_ENT);
+    if (st >= 0) return st;
+    /* 两个 API 都没有：不能「取不到就放行」，那等于把 root 守护交给任意进程。 */
+    const char *allow = getenv("XOVD_ALLOW_ANY_PEER");
+    if (allow && allow[0] == '1') {
+        logmsg("xovd: WARN XOVD_ALLOW_ANY_PEER=1，跳过 %s 校验（排障模式）", CLIENT_ENT);
         return 1;
     }
-    return has_ent(peer, CLIENT_ENT) != 0;
+    logmsg("xovd: FATAL 无 API 可校验 %s；拒绝连接（排障可设 XOVD_ALLOW_ANY_PEER=1）",
+           CLIENT_ENT);
+    return 0;
 }
 
 /* ---------------- 处理一条请求 ---------------- */
@@ -702,6 +742,9 @@ int main(int argc, char **argv) {
     g_create_mach = (create_mach_fn)dlsym(RTLD_DEFAULT, "xpc_connection_create_mach_service");
     g_get_pid = (pid_fn)dlsym(RTLD_DEFAULT, "xpc_connection_get_pid");
     g_rootfs = (rootfs_fn)dlsym(RTLD_DEFAULT, "rootfs_get_path");
+    /* peer 校验的两级候选，按 peer_entitlement_state 的顺序用；都没有就 fail-closed。 */
+    g_has_bool_ent = (has_bool_ent_fn)dlsym(RTLD_DEFAULT, "xpc_connection_has_bool_entitlement");
+    g_copy_ent = (copy_ent_fn)dlsym(RTLD_DEFAULT, "xpc_connection_copy_entitlement_value");
 
     char prefix[PATH_MAX], how[128];
     int have = find_bootstrap(prefix, sizeof prefix, how, sizeof how);
@@ -727,6 +770,10 @@ int main(int argc, char **argv) {
            g_rootfs ? "present" : "missing", g_log_fd >= 0 ? logpath : "(stderr only)");
     if (!have) logmsg("xovd: WARN bootstrap not found; helpers will fail");
     if (geteuid() != 0) logmsg("xovd: WARN not root (euid=%d)", (int)geteuid());
+    logmsg("xovd: peer check via %s",
+           g_has_bool_ent ? "xpc_connection_has_bool_entitlement"
+                          : g_copy_ent ? "xpc_connection_copy_entitlement_value"
+                                       : "NONE (fail-closed)");
     if (have) {
         snprintf(g_pidfile, sizeof g_pidfile, "%s/var/run/xovd.pid", prefix);
         write_pidfile(prefix);

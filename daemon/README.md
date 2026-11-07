@@ -168,12 +168,16 @@ helper、`/usr/bin/xov-cli`、`/Library/LaunchDaemons/wiki.xov.xovd.plist`；
   → `xov-cli helper xov-build --exec /tmp 'id -u'` 经守护得 `uid=0`（同一 helper 直接以
   mobile 跑是 `uid=501`）。日志里 `idle exit disabled (XOVD_IDLE_SECS=0)` 说明常驻形态生效。
 - **未验证**：helper 真正以 root 执行注入类工具的完整链路（需要设备上的一次真实注入）。
-- **已知缺口**：roothide 的 libxpc 里没有 `xpc_connection_has_bool_entitlement`，守护启动后
-  每次连接都记 `WARN xpc_connection_has_bool_entitlement unavailable` 并**放行**（见
-  `xovd.c` 的 `peer_allowed`）—— 也就是 `wiki.xov.client` 目前**没有真正被校验**，任何进程都能
-  驱动 root 守护跑白名单 helper。修法：用 `SecTaskCreateWithAuditToken` +
-  `SecTaskCopyValueForEntitlement` 兜底（需 `-framework Security`），并用一个不带 entitlement
-  的测试客户端验拒绝路径。
+- **已修并已验（2026-11-07 20:34）**：早期版本在 `xpc_connection_has_bool_entitlement` 拿不到时
+  **放行**（roothide 的 libxpc 确实没有这个符号），等于 root 守护对任何进程开放。现在
+  `peer_allowed` 走三级降级且 **fail-closed**：`xpc_connection_has_bool_entitlement` →
+  `xpc_connection_copy_entitlement_value` → 拒绝（只有显式 `XOVD_ALLOW_ANY_PEER=1` 才放行，
+  排障用，会写日志）。启动日志记 `peer check via …`，本机实测走的是
+  `xpc_connection_copy_entitlement_value`。
+  负向/正向都验过：不带 entitlement 的 ad-hoc 客户端得到 `Connection interrupted`（rc=3），
+  守护记 `peer rejected … (no wiki.xov.client)`；同一个程序带 `xov-cli.entitlements` 签名后
+  得到 `reply: status=OK`（rc=0）；`xov-cli status` 仍 `status: OK / uid: 0`。
+- **未验证**：`XOVD_ALLOW_ANY_PEER=1` 这条排障开关本身（没有为它改 plist 重载）。
 - **已验**：roothide 下 launchd 通过路径改写找到 `<jbroot>/usr/libexec/xovd` ——
   `icli svc paths` 预览出 `<jbroot>/usr/libexec/xovd`，`icli svc bootstrap` 后
   `program` 正是该真实路径且 `running: true`。

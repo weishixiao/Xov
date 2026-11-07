@@ -79,3 +79,12 @@
   **发现的缺口**：roothide 的 libxpc 无 `xpc_connection_has_bool_entitlement`，守护每次连接都
   记 WARN 并放行 —— `wiki.xov.client` 实际未被校验，任何进程都能驱动 root 守护跑白名单 helper。
   待修（SecTask 兜底 + 不带 entitlement 的负向测试），未动代码。
+- 2026-11-07 20:34：该缺口已修。`xovd.c` 的 `peer_allowed` 改三级降级 + fail-closed：
+  `xpc_connection_has_bool_entitlement` → `xpc_connection_copy_entitlement_value`（本机走这条，
+  启动日志 `peer check via …`）→ 都没有则拒绝，只有 `XOVD_ALLOW_ANY_PEER=1` 才放行（排障用）。
+  重出包（build `0a7e848b`，sha256 `c30e8eab…`）→ 装（installation `474aa0e1…`）→
+  `icli svc bootout`/`bootstrap` 重载（新 pid 4176）。
+  验证：`$TMPDIR` 里编的同一 XPC 客户端 `ldid -S`（无 entitlement）→ `Connection interrupted`
+  rc=3，守护记 `peer rejected … (no wiki.xov.client)`；`ldid -S daemon/xov-cli.entitlements`
+  副本 → `reply: status=OK` rc=0；`xov-cli status` 仍 OK/uid 0。
+  未验证：`XOVD_ALLOW_ANY_PEER=1` 开关本身；注入类 helper 的完整链路。
