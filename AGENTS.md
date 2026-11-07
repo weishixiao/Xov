@@ -88,3 +88,16 @@
   rc=3，守护记 `peer rejected … (no wiki.xov.client)`；`ldid -S daemon/xov-cli.entitlements`
   副本 → `reply: status=OK` rc=0；`xov-cli status` 仍 OK/uid 0。
   未验证：`XOVD_ALLOW_ANY_PEER=1` 开关本身；注入类 helper 的完整链路。
+- 2026-11-07 22:30：**白描真实 dylib 注入打通（已查证）**。放弃 `opainject` 的 ROP 路线
+  （root 下卡在 `[createRemotePthread] Created bootstrap thread... now waiting on finish`，
+  mobile 下 `[spawnPacChild] Failed to obtain task port: 5`；两者均不可用），改走 roothide 自带的
+  **TweakInject**：`/usr/lib/TweakInject/wiki.xov.inject.dylib`（thin arm64 探针，root:wheel 755）
+  + `wiki.xov.inject.plist`（`Filter → Bundles = (com.uzero.ocrrec)`）。
+  重启白描后 App 容器 `Documents/xov-probe.log` 落盘
+  `XOVPROBE via=dyld-ctor pid=27446 uid=501 home=/private/var/mobile/Containers/Data/Application/740FDEBA-…`，
+  即进程内真实执行到我们 dylib 的 constructor。os_log 子系统 `wiki.xov.inject`。
+  探针源码留在 `daemon/test/`（`inject_probe.c`、`dlopen_test.c`），构建产物不进仓库。
+  遗留：白描包内 `Frameworks/libxovinject.dylib`（早前覆盖的 arm64 副本）与
+  `/var/mobile/xovinj/` 暂存目录仍在，未删（删包外文件需单独点头）。
+  另：`jbctl trustcache add` 静默 rc=0，`trustcache info` 条目数未见增长（78 条），
+  即 TweakInject 的加载并不依赖它 —— 该命令是否真的写入未查证。

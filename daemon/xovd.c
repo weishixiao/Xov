@@ -409,7 +409,13 @@ static void run_helper(char *const argv[], int argc_unused, int timeout, result_
  *   1) xpc_connection_has_bool_entitlement —— 公共/私有 API 齐全时最省事；
  *   2) xpc_connection_copy_entitlement_value —— libxpc 里实际存在（本机 tbd 已确认），
  *      返回 peer 的 entitlement 值（bool false / error / NULL 都算没有）；
- *   3) 都没有：拒绝连接，除非显式设了 XOVD_ALLOW_ANY_PEER=1（排障用，会写日志）。
+ *   3) 都没有：拒绝连接。
+ *
+ * 排障开关 XOVD_ALLOW_ANY_PEER=1 放在**最前面**，命中就放行并每次写 WARN。
+ * 早期把它写在「两个 API 都拿不到」分支里，可本机 libxpc 带
+ * xpc_connection_copy_entitlement_value，那个分支永远走不到，等于死代码；
+ * 而它的用途恰恰是「校验本身出问题」时的应急放行，所以必须是入口级覆盖。
+ * 只有 root 能改 plist 的 EnvironmentVariables，且每次连接都留日志。
  *
  * 早期版本在拿不到 API 时 return 1（放行），等于 root 守护对任何 App 开放，已改掉。 */
 typedef int (*has_bool_ent_fn)(xpc_connection_t, const char *);
@@ -439,14 +445,15 @@ static int peer_entitlement_state(xpc_connection_t peer, const char *key) {
 }
 
 static int peer_allowed(xpc_connection_t peer) {
-    int st = peer_entitlement_state(peer, CLIENT_ENT);
-    if (st >= 0) return st;
-    /* 两个 API 都没有：不能「取不到就放行」，那等于把 root 守护交给任意进程。 */
+    /* 排障覆盖：优先于 API 探测，否则在有 copy_entitlement 的 libxpc 上永远不生效。 */
     const char *allow = getenv("XOVD_ALLOW_ANY_PEER");
     if (allow && allow[0] == '1') {
         logmsg("xovd: WARN XOVD_ALLOW_ANY_PEER=1，跳过 %s 校验（排障模式）", CLIENT_ENT);
         return 1;
     }
+    int st = peer_entitlement_state(peer, CLIENT_ENT);
+    if (st >= 0) return st;
+    /* 两个 API 都没有：不能「取不到就放行」，那等于把 root 守护交给任意进程。 */
     logmsg("xovd: FATAL 无 API 可校验 %s；拒绝连接（排障可设 XOVD_ALLOW_ANY_PEER=1）",
            CLIENT_ENT);
     return 0;
