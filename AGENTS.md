@@ -210,3 +210,11 @@
   剩余已知旧名：`import com.openminis.rclone.gomobile.*`（4 处，预编译 Go AAR 的包名，必须保留）。
   **未验证**：本机没有 Gradle/Android SDK/模拟器，Android 侧既未 `assembleDebug` 也未跑单测；
   上面是静态核对（目录名、字符串、测试断言一致），不是编译通过。
+- 2026-11-08 09:35：提交并构建。全部改动合成一个提交 `6e78b74`（TrollStore 签名补
+  `group.com.openminis.app`、CI 装 lld 并增加 guest linker 校验、Room schema 迁到
+  `wiki.xov.app.data.db.AppDatabase`、其余 iOS/shared 改动）。`apelin_project_build` release
+  成功：`com.xov.daemon_0.1.0_iphoneos-arm64e.deb`，build `e16747bd`，sha256 `54254424…`；
+  只有 `xov-common.h` 三个静态函数未使用的警告，以及「0.1.0 今天已打过包」（守护代码没变）。
+  **未做**：未 push，CI 未跑，新 workflow 的 lld 修法与 .ipa 产物仍未实测。
+  环境坑：`shell_run` 里 `$APELIN_PROJECT_ROOT` 被截成 `…/Projects/min`，任何 `git -C` 都报
+  `failed to stat`；用 `dirname "$APELIN_PROJECT_ROOT"` + `/minis` 拼回真路径，或直接用 `git_*` 工具。
