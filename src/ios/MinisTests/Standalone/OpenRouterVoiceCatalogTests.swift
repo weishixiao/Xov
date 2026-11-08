@@ -311,10 +311,10 @@ check("read-aloud and Quick Test hand the model to TTS",
 
 // ── Part 3: iOS ↔ Android agree ──────────────────────────────────────────────
 
-let droidModality = read("src/android/app/src/main/java/com/openminis/app/data/model/VoiceModality.kt")
-let droidApi = read("src/android/app/src/main/java/com/openminis/app/provider/openrouter/OpenRouterModelsApi.kt")
-let droidVendors = read("src/android/app/src/main/java/com/openminis/app/provider/voice/VoiceProviderVendors.kt")
-let droidTest = read("src/android/app/src/test/java/com/openminis/app/provider/voice/OpenRouterVoiceRoutingTest.kt")
+let droidModality = read("src/android/app/src/main/java/wiki/xov/app/data/model/VoiceModality.kt")
+let droidApi = read("src/android/app/src/main/java/wiki/xov/app/provider/openrouter/OpenRouterModelsApi.kt")
+let droidVendors = read("src/android/app/src/main/java/wiki/xov/app/provider/voice/VoiceProviderVendors.kt")
+let droidTest = read("src/android/app/src/test/java/wiki/xov/app/provider/voice/OpenRouterVoiceRoutingTest.kt")
 
 /// Every double-quoted literal between `start` and the next `end`.
 func literals(_ src: String, from start: String, to end: String) -> [String] {

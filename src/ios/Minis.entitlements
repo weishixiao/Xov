@@ -14,7 +14,7 @@
 	<true/>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
-		<string>iCloud.com.openminis.app</string>
+		<string>iCloud.wiki.xov.app</string>
 	</array>
 	<key>com.apple.developer.icloud-services</key>
 	<array>
@@ -27,7 +27,7 @@
 	</array>
 	<key>com.apple.developer.ubiquity-container-identifiers</key>
 	<array>
-		<string>iCloud.com.openminis.app</string>
+		<string>iCloud.wiki.xov.app</string>
 	</array>
 	<key>com.apple.developer.weatherkit</key>
 	<true/>

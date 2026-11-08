@@ -164,3 +164,49 @@
   下载限制（已查证）：GitHub Actions artifact 一律要求登录，匿名取不到直链，需在 Safari 登录后从
   run 页 Artifacts 下载；本会话 `apelin_web_fetch` 的匿名 API 仍被限流（403），拿不到 artifact id。
   唯一告警：`actions/*@v4` 等被强制跑在 Node 24（Node 20 弃用），不影响构建。
+- 2026-11-08 06:50：**启动闪退已修（已查证）**。TrollStore 安装的 Minis 来自构建 `63bbcce`，
+  签名时丢掉了 `com.apple.security.application-groups`，只有 `application-identifier`
+  = `TROLLTROLL.*` 与 `keychain-access-groups`；`MinisApp.swift:1181` 对
+  `containerURL(forSecurityApplicationGroupIdentifier: "group.com.openminis.app")` 强解包
+  → `brk #1` / `EXC_BREAKPOINT`，启动 ~70ms 死。
+  修法：对已安装包
+  `/var/containers/Bundle/Application/BBB6E209-263A-4902-AFF6-982AC76C0B97/Minis.app`
+  的四个 Mach-O 跑 `ldid -S scripts/trollstore-app.entitlements`
+  （`Minis`、`PlugIns/MinisShare.appex/MinisShare`、`PlugIns/MinisFileProvider.appex/MinisFileProvider`、
+  `PlugIns/AgentWidgetExtension.appex/AgentWidgetExtension`），原二进制备份在
+  `/var/mobile/Library/Caches/xov-resign-backup/`。
+  验证：`icli app info com.openminis.app` 的 entitlements 已含
+  `com.apple.security.application-groups = [group.com.openminis.app]`；
+  系统日志里 `container_create_or_lookup_app_group_path_by_app_group_identifier: success`；
+  进程存活 20s+ 未再产生崩溃报告。
+  **遗留**：① 仓库里 `com.openminis.app → wiki.xov.app` 的改名把 group id 也改成了
+  `group.wiki.xov.app`，与设备上已存在的 `group.com.openminis.app` 容器不一致，下次构建出的包
+  仍会闪退，需要先在设备上建 `group.wiki.xov.app` 容器（或把改名回退到只改 bundle id）；
+  ② `src/android` 的 Kotlin 包目录仍是 `com/openminis/app`，与改名后的 `build.gradle.kts`
+  namespace 不一致，Android 侧编不过。
+- 2026-11-08 09:23：**遗留①②均已清（已查证）**。
+  ① **定案：回退到 `group.com.openminis.app`**，bundle id 仍是 `wiki.xov.app`。理由：设备上真实存在的
+  容器只有 `group.com.openminis.app`（`/var/mobile/Containers/Shared/AppGroup/DD592109-C073-4CF0-9E2F-32626FDE5E2C`），
+  `group.wiki.xov.app` 不存在；group id 用户不可见，改名零收益、只有丢数据和 `containerURL` 返回 nil 的风险。
+  全仓 grep `group\.(wiki\.xov|com\.openminis)\.app` 确认代码侧已全部是 `group.com.openminis.app`：
+  `MinisApp.swift:794/1181/1229`、`Shared/SharedContainerStore.swift:6`、
+  `Views/Settings/SharedFolderVisibility.swift:26`、`FileProvider/*`（`FileProviderExtension.swift:17/102/121`、
+  `FileProviderBootHealth.swift:64`、`FPSyncTraceLog.swift:25`、`Info.plist:8`）、`Debug/DebugJSONRPC.swift:1942`、
+  四个 `*.entitlements`（Minis / ShareExtension / FileProvider / AgentWidget）、
+  `scripts/trollstore-app.entitlements:53`、`scripts/ios-unit-tests/data_guard.py`。
+  仍带旧名的只剩文档叙述（本文件的 170/178–184 行）与 keychain 组 `iCloud.com.openminis.app`
+  （TrollStore 下无 provisioning 校验，不动）。
+  ② Android 包目录已全部是 `wiki/xov/app`（`main`/`test`/`androidTest` 三处，
+  `find src/android -type d -name com -o -name openminis` 无输出）。本轮补齐两处漏网：
+  - Room schema 目录 `src/android/app/schemas/com.openminis.app.data.db.AppDatabase/`
+    → `wiki.xov.app.data.db.AppDatabase/`（`12.json`/`13.json`/`14.json`，内容不含包名，只改目录）。
+    必须改：`build.gradle.kts:191` 把 `$projectDir/schemas` 塞进 test APK 的 assets，
+    而 `DatabaseVersionGuardTest.kt:32` 写死 `schemas/wiki.xov.app.data.db.AppDatabase`，旧名会让迁移
+    测试报「No exported Room schema found」。
+  - `providers/MinisDocumentsProvider.kt` 的 `AUTHORITY` 与文档注释
+    `com.openminis.minis.documents` → `wiki.xov.minis.documents`。该 provider 尚未在
+    `AndroidManifest.xml` 注册（文件里自己写了「Manifest registration is not yet wired」），
+    也没有持久化 URI 依赖，改名无数据风险。
+  剩余已知旧名：`import com.openminis.rclone.gomobile.*`（4 处，预编译 Go AAR 的包名，必须保留）。
+  **未验证**：本机没有 Gradle/Android SDK/模拟器，Android 侧既未 `assembleDebug` 也未跑单测；
+  上面是静态核对（目录名、字符串、测试断言一致），不是编译通过。

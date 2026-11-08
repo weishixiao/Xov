@@ -1340,7 +1340,7 @@ final class DebugJSONRPC: @unchecked Sendable {
             query.sortDescriptors = [NSSortDescriptor(key: key, ascending: sortAscending)]
         }
         let zoneID = CKRecordZone.ID(zoneName: zoneName)
-        let container = CKContainer(identifier: "iCloud.com.openminis.app")
+        let container = CKContainer(identifier: "iCloud.wiki.xov.app")
         do {
             let result = try await container.privateCloudDatabase.records(
                 matching: query,
@@ -1394,7 +1394,7 @@ final class DebugJSONRPC: @unchecked Sendable {
     /// (minis-shared / minis-devices / minis-secrets) when migration
     /// counters look suspect.
     private func handleSyncAllZones() async -> Any {
-        let container = CKContainer(identifier: "iCloud.com.openminis.app")
+        let container = CKContainer(identifier: "iCloud.wiki.xov.app")
         do {
             let zones = try await container.privateCloudDatabase.allRecordZones()
             return [
@@ -1442,7 +1442,7 @@ final class DebugJSONRPC: @unchecked Sendable {
     ///   recordTypes (optional): override the default per-zone type
     ///     list. Useful for ad-hoc probes.
     private func handleSyncZoneStats(params: [String: Any]) async -> Any {
-        let containerId = "iCloud.com.openminis.app"
+        let containerId = "iCloud.wiki.xov.app"
         let container = CKContainer(identifier: containerId)
         let db = container.privateCloudDatabase
 
@@ -2605,7 +2605,7 @@ final class DebugJSONRPC: @unchecked Sendable {
     }
 
     /// URL of iCTRL's JSON-RPC endpoint on this device. iCTRL is a co-
-    /// installed XCTest automation service (bundle com.openminis.ictrl,
+    /// installed XCTest automation service (bundle wiki.xov.ictrl,
     /// port 8200). It runs inside a UI test runner so it can drive
     /// XCUIElement.tap() — which we can't from the app process.
     /// Loopback auth exemption on iCTRL side means we don't send a token.
@@ -2640,7 +2640,7 @@ final class DebugJSONRPC: @unchecked Sendable {
         // SpringBoard if none). Since debug.tap is called BY MinisApp asking
         // to tap something in ITSELF, pin the query to our own bundle id
         // unless the caller explicitly overrides via ictrl_bundle_id.
-        let bundleId = (params["ictrl_bundle_id"] as? String) ?? Bundle.main.bundleIdentifier ?? "com.openminis.app"
+        let bundleId = (params["ictrl_bundle_id"] as? String) ?? Bundle.main.bundleIdentifier ?? "wiki.xov.app"
         let rpcParams: [String: Any] = [
             "element_id": elementId,
             "match": matchMode,

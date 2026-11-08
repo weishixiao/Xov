@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  TrollStore 自签 App 用的 entitlements。
+
+	  CI 出的 .ipa 是 CODE_SIGNING_ALLOWED=NO 的未签名包，二进制里一条 entitlements
+	  都没有；TrollStore 安装时只会补它自己那一组（application-identifier=TROLLTROLL.*、
+	  set-exception-port、get-task-allow …），**不会**补 App Group。
+
+	  结果就是 FileManager.containerURL(forSecurityApplicationGroupIdentifier:)
+	  返回 nil，而 MinisApp.swift:1181 与 AIChatViewModel+RequestBudget.swift:421/431
+	  都是 `!` 强解包 —— 启动约 70ms 后 SIGTRAP（brk #1，EXC_BREAKPOINT）。
+	  这两处强解包已经去掉（改成退到 Application Support + 日志），App 不会再因此闪退，
+	  但 App Group 缺失时共享目录、FileProvider 与 Share Extension 仍然不可用。
+
+	  两条路，任选其一：
+	    1. CI 已经做了（.github/workflows/ios-app.yml 的 "Embed the entitlements" 步骤）：
+	       xcodebuild archive 之后立刻
+	           codesign --force --sign - --entitlements scripts/trollstore-app.entitlements \
+	               <App>.app/<App>  <App>.app/PlugIns/*.appex/*
+	       这样交给 TrollStore 的 .ipa 里 entitlement 已经在了。
+	    2. 手工对已安装的包补签（本机验证过）：
+	           ldid -Sscripts/trollstore-app.entitlements <App>.app/<App>
+	           ldid -Sscripts/trollstore-app.entitlements <App>.app/PlugIns/*.appex/*
+
+	  ⚠️ com.apple.security.application-groups 的值必须和代码里编译进去的
+	  group id 逐字符一致：代码侧是 SharedContainerStore.appGroupID =
+	  group.com.openminis.app（2026-11-08 从 group.wiki.xov.app 回退，
+	  因为设备上已有的容器就是 group.com.openminis.app，改名会丢掉旧数据）。
+	  改名前先 `ldid -e <App>.app/<App>` 或 `strings <App>.app/<App> | grep '^group\.'` 核对。
+	-->
+	<key>application-identifier</key>
+	<string>TROLLTROLL.*</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>TROLLTROLL</string>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>TROLLTROLL.*</string>
+		<string>com.apple.token</string>
+	</array>
+	<key>get-task-allow</key>
+	<true/>
+	<key>com.apple.private.set-exception-port</key>
+	<true/>
+	<key>com.apple.security.get-movable-control-port</key>
+	<true/>
+	<key>jb.pmap_cs.custom_trust</key>
+	<string>PMAP_CS_APP_STORE</string>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.openminis.app</string>
+	</array>
+	<key>aps-environment</key>
+	<string>development</string>
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+	<key>com.apple.developer.healthkit.access</key>
+	<array>
+		<string>health-records</string>
+	</array>
+	<key>com.apple.developer.homekit</key>
+	<true/>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.com.openminis.app</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
+	<key>com.apple.developer.ubiquity-container-identifiers</key>
+	<array>
+		<string>iCloud.com.openminis.app</string>
+	</array>
+	<key>com.apple.developer.weatherkit</key>
+	<true/>
+</dict>
+</plist>

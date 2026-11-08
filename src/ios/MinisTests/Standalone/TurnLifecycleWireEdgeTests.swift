@@ -77,7 +77,7 @@ let sseSrc = src("Agent/Chat/AIChatViewModel+SSEStream.swift")
 let openaiSrc = src("Providers/OpenAI/OpenAIAgentProvider.swift")
 let coordSrc = src("Agent/ISH/ISHExecutionCoordinator.swift")
 let oauthSrc = src("Providers/Anthropic/OAuthHTTPClient.swift")
-let androidMimicrySrc = repoSrc("src/android/app/src/main/java/com/openminis/app/auth/ClaudeCliMimicryHeaders.kt")
+let androidMimicrySrc = repoSrc("src/android/app/src/main/java/wiki/xov/app/auth/ClaudeCliMimicryHeaders.kt")
 
 // MARK: - [1] Error durability on turn >= 2
 

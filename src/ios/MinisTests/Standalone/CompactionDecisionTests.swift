@@ -17,7 +17,7 @@
 // drifts from production fails here instead of silently testing old code.
 //
 // Run: swift CompactionDecisionTests.swift
-// Android twin: app/src/test/java/com/openminis/app/data/CompactionDecisionTest.kt
+// Android twin: app/src/test/java/wiki/xov/app/data/CompactionDecisionTest.kt
 import Foundation
 
 /// The sources that used to be the single file Agent/Chat/AIChatViewModel.swift -

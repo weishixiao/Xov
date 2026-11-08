@@ -750,7 +750,7 @@ struct MinisApp: App {
     // MARK: - FileProvider
 
     private static let fileProviderDomain = NSFileProviderDomain(
-        identifier: NSFileProviderDomainIdentifier("com.openminis.app.files"),
+        identifier: NSFileProviderDomainIdentifier("wiki.xov.app.files"),
         displayName: "Minis"
     )
 
@@ -996,7 +996,7 @@ struct MinisApp: App {
             }
 
             // Remove any stale domains with different identifiers, then add ours.
-            let stale = domains.filter { $0.identifier.rawValue.contains("com.openminis") }
+            let stale = domains.filter { $0.identifier.rawValue.contains("wiki.xov") }
             let group = DispatchGroup()
             for d in stale {
                 group.enter()
@@ -1178,7 +1178,14 @@ struct MinisApp: App {
     private static func migrateSharedDirToAppGroup() {
         let fm = FileManager.default
         let library = fm.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let container = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.com.openminis.app")!
+        guard let container = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.com.openminis.app") else {
+            // No App Group container (an install whose entitlements lost
+            // com.apple.security.application-groups): nothing was ever migrated
+            // there, so there is nothing to move. Never force-unwrap — that is
+            // a SIGTRAP at launch.
+            lifecycleLog.info("[FileProvider] no App Group container; skipping the shared-dir migration")
+            return
+        }
 
         let migrations: [(source: URL, dest: URL, label: String)] = [
             // Legacy Library/MinisChat/shared → new shared

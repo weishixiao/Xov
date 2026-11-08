@@ -399,7 +399,7 @@ if api.isEmpty {
     check("the ported visibility/reasoning helpers are byte-identical with the shipping source",
           !helper(api).isEmpty && helper(api) == helper(me))
     // iOS / Android must hide the same entries.
-    let androidApi = source("../android/app/src/main/java/com/openminis/app/provider/openai/CodexModelsApi.kt")
+    let androidApi = source("../android/app/src/main/java/wiki/xov/app/provider/openai/CodexModelsApi.kt")
     let androidSet = androidApi.range(of: "HIDDEN_VISIBILITIES = setOf(").map { r -> Set<String> in
         let tail = androidApi[r.upperBound...]
         let body = tail[..<(tail.firstIndex(of: ")") ?? tail.endIndex)]

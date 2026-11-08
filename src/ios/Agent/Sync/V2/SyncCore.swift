@@ -298,7 +298,7 @@ final class SyncCore {
                 }
             }
         }
-        m.start(queue: DispatchQueue(label: "com.openminis.sync.pathMonitor"))
+        m.start(queue: DispatchQueue(label: "wiki.xov.sync.pathMonitor"))
         pathMonitor = m
     }
 

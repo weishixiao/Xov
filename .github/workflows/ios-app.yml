@@ -9,10 +9,16 @@
 #
 # THE ARTIFACT IS UNSIGNED ON PURPOSE
 # -----------------------------------
-# Signing needs the device's own identity. Before installing, sign the .app
-# with the entitlements in daemon/APP-ENTITLEMENTS.md (`ldid -S<file>`);
-# TrollStore re-signs on install but keeps the entitlements already in the
-# binary, so `wiki.xov.client` must be in it before it is installed.
+# Signing needs the device's own identity, so there is no certificate to use
+# here. TrollStore still has to be handed an .ipa whose binaries already carry
+# the App Group entitlement: its installer signs with its own template and keeps
+# only the keys already in the binary, so a plain unsigned build loses
+# `com.apple.security.application-groups`, `containerURL(...)` then returns nil,
+# and the app died ~70 ms into launch (SIGTRAP, MinisApp.swift). The "Embed the
+# entitlements" step below ad-hoc signs with scripts/trollstore-app.entitlements
+# so the key is there before TrollStore ever sees the file. See
+# daemon/APP-ENTITLEMENTS.md for the keys and for what to do if an install
+# still comes out without them.
 #
 # WHAT IS CACHED, AND WHY IT MAY BE WORTH NOTHING
 # -----------------------------------------------
@@ -301,6 +307,44 @@ jobs:
             DEVELOPMENT_TEAM="" \
             archive
 
+      - name: Embed the entitlements
+        # See the header: TrollStore keeps only the entitlements already in the
+        # binary, and without com.apple.security.application-groups the app
+        # traps at launch and the extensions see no shared folders. Ad-hoc sign
+        # the app and each extension with the TrollStore key set. No certificate
+        # and no Identity needed — this is the same `-S<entitlements>` step the
+        # device used by hand, done before the .ipa is zipped.
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/Minis.xcarchive/Products/Applications/Minis.app"
+          ENT="$GITHUB_WORKSPACE/scripts/trollstore-app.entitlements"
+          if [ ! -f "$ENT" ]; then
+            echo "::error::$ENT is missing"
+            exit 1
+          fi
+          sign_binary() {
+            echo "  signing ${1#"$APP"/}"
+            codesign --force --sign - --timestamp=none --entitlements "$ENT" "$1"
+          }
+          sign_binary "$APP/Minis"
+          for appex in "$APP"/PlugIns/*.appex; do
+            [ -d "$appex" ] || continue
+            EXE="$appex/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$appex/Info.plist")"
+            if [ ! -f "$EXE" ]; then
+              echo "::error::$appex holds no executable"
+              exit 1
+            fi
+            sign_binary "$EXE"
+          done
+          # Read the entitlements back: the App Group key is the whole point of
+          # this step, so a signature that does not carry it must fail here
+          # rather than 31 minutes into an install on the device.
+          if ! codesign --display --entitlements - "$APP/Minis" 2>/dev/null \
+               | grep -aq 'com.apple.security.application-groups'; then
+            echo "::error::the signature does not carry com.apple.security.application-groups"
+            exit 1
+          fi
+
       - name: Package the .ipa
         id: ipa
         run: |
@@ -312,7 +356,7 @@ jobs:
           fi
           VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
           BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Info.plist")"
-          NAME="Minis-${VERSION}-${BUILD}-unsigned"
+          NAME="Minis-${VERSION}-${BUILD}-trollstore"
 
           STAGE="$RUNNER_TEMP/ipa"
           rm -rf "$STAGE"
@@ -328,7 +372,7 @@ jobs:
           echo "path=$STAGE/$NAME.ipa" >> "$GITHUB_OUTPUT"
 
           {
-            echo "### Minis $VERSION ($BUILD), unsigned"
+            echo "### Minis $VERSION ($BUILD), TrollStore-signed"
             echo
             echo "| | |"
             echo "|---|---|"
